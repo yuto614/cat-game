@@ -2,11 +2,15 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
 const HIGH_SCORE_KEY = 'cat-game-high-score';
+const TOTAL_FISH_KEY = 'cat-game-total-fish';
+const RARE_FISH_KEY = 'cat-game-rare-fish';
+const ACHIEVEMENTS_KEY = 'cat-game-achievements';
 
 const COLOR_CYAN = '#00f6ff';
 const COLOR_MAGENTA = '#ff2d95';
 const COLOR_PURPLE = '#b14eff';
 const COLOR_WHITE = '#f5f5ff';
+const COLOR_GOLD = '#ffd24a';
 
 const ground = {
   x: 0,
@@ -35,6 +39,15 @@ const obstacle = {
   type: 'block',
   speedMultiplier: 1,
   nearMissChecked: false,
+};
+
+const fish = {
+  active: false,
+  x: 0,
+  y: 0,
+  width: 22,
+  height: 14,
+  isRare: false,
 };
 
 const GRAVITY = 0.6;
@@ -79,7 +92,6 @@ const NEAR_MISS_GAP = 18;
 const NEAR_MISS_BASE_BONUS = 50;
 const NEAR_MISS_COMBO_STEP = 10;
 const NEAR_MISS_BONUS_CAP = 100;
-const NICE_TEXT_DURATION = 60;
 const COMBO_RESET_FRAMES = 150;
 const COMBO_POPUP_DURATION = 90;
 const MILESTONES = [1000, 3000, 5000, 10000];
@@ -93,6 +105,26 @@ const HOLOGRAM_CHANCE = 0.004;
 const HOLOGRAM_SPEED = 1.5;
 const HOLOGRAM_DURATION = 220;
 const HOLOGRAM_FADE_FRAMES = 40;
+
+const FISH_BASE_WIDTH = 22;
+const FISH_BASE_HEIGHT = 14;
+const FISH_BONUS = 200;
+const RARE_FISH_BONUS = 500;
+const FISH_SPAWN_CHANCE = 0.012;
+const RARE_FISH_CHANCE = 0.12;
+const FISH_SPARKLE_COUNT = 6;
+const FISH_SPARKLE_LIFETIME = 16;
+const POPUP_TEXT_DURATION = 60;
+
+const ACHIEVEMENTS = [
+  { id: 'first_jump', title: 'First Jump' },
+  { id: 'combo_master', title: 'Combo Master' },
+  { id: 'fish_hunter', title: 'Fish Hunter' },
+  { id: 'rare_collector', title: 'Rare Collector' },
+  { id: 'cyber_legend', title: 'Cyber Legend' },
+];
+const ACHIEVEMENT_NOTICE_DURATION = 150;
+const ACHIEVEMENT_FADE_FRAMES = 15;
 
 const moon = {
   x: canvas.width - 90,
@@ -146,6 +178,10 @@ let gameState = 'title';
 let score = 0;
 let level = 1;
 let highScore = Number(localStorage.getItem(HIGH_SCORE_KEY)) || 0;
+let totalFishCount = Number(localStorage.getItem(TOTAL_FISH_KEY)) || 0;
+let rareFishCount = Number(localStorage.getItem(RARE_FISH_KEY)) || 0;
+let unlockedAchievements = (localStorage.getItem(ACHIEVEMENTS_KEY) || '').split(',').filter(Boolean);
+let fishCollectedThisRun = 0;
 let obstacleSpeed = BASE_OBSTACLE_SPEED;
 let trail = [];
 let particles = [];
@@ -159,13 +195,15 @@ let happyTimer = 0;
 let comboCount = 0;
 let comboTimer = 0;
 let comboPopupTimer = 0;
-let niceTexts = [];
+let popupTexts = [];
 let milestoneTimer = 0;
 let milestoneScore = 0;
 let nextMilestoneIndex = 0;
 let squashTimer = 0;
 let squashMode = 'none';
 let holograms = [];
+let achievementQueue = [];
+let currentAchievementNotice = null;
 
 function getAvailableObstacleTypes() {
   if (level < 3) {
@@ -244,6 +282,87 @@ function maybeSpawnHologram() {
   });
 }
 
+function maybeSpawnFish() {
+  if (fish.active || Math.random() >= FISH_SPAWN_CHANCE) {
+    return;
+  }
+  fish.active = true;
+  fish.isRare = Math.random() < RARE_FISH_CHANCE;
+  fish.width = fish.isRare ? FISH_BASE_WIDTH + 4 : FISH_BASE_WIDTH;
+  fish.height = fish.isRare ? FISH_BASE_HEIGHT + 2 : FISH_BASE_HEIGHT;
+  fish.x = canvas.width + 20;
+  fish.y = randomRange(HORIZON_Y + 20, ground.y - fish.height - 10);
+}
+
+function spawnFishSparkles(x, y, color) {
+  for (let i = 0; i < FISH_SPARKLE_COUNT; i++) {
+    particles.push({
+      x,
+      y,
+      vx: randomRange(-1.5, 1.5),
+      vy: randomRange(-1.5, 0.5),
+      life: FISH_SPARKLE_LIFETIME,
+      maxLife: FISH_SPARKLE_LIFETIME,
+      color,
+    });
+  }
+}
+
+function unlockAchievement(id) {
+  if (unlockedAchievements.includes(id)) {
+    return;
+  }
+  unlockedAchievements.push(id);
+  localStorage.setItem(ACHIEVEMENTS_KEY, unlockedAchievements.join(','));
+  achievementQueue.push(id);
+}
+
+function checkAchievements() {
+  if (comboCount >= 10) {
+    unlockAchievement('combo_master');
+  }
+  if (totalFishCount >= 10) {
+    unlockAchievement('fish_hunter');
+  }
+  if (rareFishCount >= 1) {
+    unlockAchievement('rare_collector');
+  }
+  if (score >= 10000) {
+    unlockAchievement('cyber_legend');
+  }
+}
+
+function checkFishCollision() {
+  if (!fish.active || !isColliding(player, fish)) {
+    return;
+  }
+  const bonus = fish.isRare ? RARE_FISH_BONUS : FISH_BONUS;
+  const color = fish.isRare ? COLOR_GOLD : COLOR_CYAN;
+
+  score += bonus;
+  fishCollectedThisRun += 1;
+  totalFishCount += 1;
+  if (fish.isRare) {
+    rareFishCount += 1;
+  }
+  localStorage.setItem(TOTAL_FISH_KEY, String(totalFishCount));
+  localStorage.setItem(RARE_FISH_KEY, String(rareFishCount));
+
+  spawnFishSparkles(fish.x + fish.width / 2, fish.y + fish.height / 2, color);
+
+  popupTexts.push({
+    x: fish.x + fish.width / 2,
+    y: fish.y - 6,
+    label: fish.isRare ? 'RARE FISH!' : 'FISH GET!',
+    color,
+    bonus,
+    life: POPUP_TEXT_DURATION,
+    maxLife: POPUP_TEXT_DURATION,
+  });
+
+  fish.active = false;
+}
+
 function checkNearMiss() {
   if (!player.isJumping || obstacle.nearMissChecked) {
     return;
@@ -268,12 +387,14 @@ function triggerNearMiss() {
   const bonus = Math.min(NEAR_MISS_BASE_BONUS + (comboCount - 1) * NEAR_MISS_COMBO_STEP, NEAR_MISS_BONUS_CAP);
   score += bonus;
 
-  niceTexts.push({
+  popupTexts.push({
     x: obstacle.x + obstacle.width / 2,
     y: obstacle.y - 10,
+    label: 'NICE!',
+    color: COLOR_CYAN,
     bonus,
-    life: NICE_TEXT_DURATION,
-    maxLife: NICE_TEXT_DURATION,
+    life: POPUP_TEXT_DURATION,
+    maxLife: POPUP_TEXT_DURATION,
   });
 }
 
@@ -305,13 +426,15 @@ function startGame() {
   comboCount = 0;
   comboTimer = 0;
   comboPopupTimer = 0;
-  niceTexts.length = 0;
+  popupTexts.length = 0;
   milestoneTimer = 0;
   milestoneScore = 0;
   nextMilestoneIndex = 0;
   squashTimer = 0;
   squashMode = 'none';
   holograms.length = 0;
+  fish.active = false;
+  fishCollectedThisRun = 0;
   gameState = 'playing';
 }
 
@@ -332,12 +455,25 @@ window.addEventListener('keydown', (e) => {
     spawnJumpParticles();
     squashTimer = SQUASH_DURATION;
     squashMode = 'jump';
+    unlockAchievement('first_jump');
   }
 });
 
 function update() {
   if (gameOverFlashTimer > 0) {
     gameOverFlashTimer -= 1;
+  }
+
+  if (currentAchievementNotice) {
+    currentAchievementNotice.timer -= 1;
+    if (currentAchievementNotice.timer <= 0) {
+      currentAchievementNotice = null;
+    }
+  }
+  if (!currentAchievementNotice && achievementQueue.length > 0) {
+    const id = achievementQueue.shift();
+    const def = ACHIEVEMENTS.find((a) => a.id === id);
+    currentAchievementNotice = { title: def.title, timer: ACHIEVEMENT_NOTICE_DURATION };
   }
 
   if (gameState !== 'playing') {
@@ -385,10 +521,10 @@ function update() {
   if (milestoneTimer > 0) {
     milestoneTimer -= 1;
   }
-  niceTexts.forEach((t) => {
+  popupTexts.forEach((t) => {
     t.life -= 1;
   });
-  niceTexts = niceTexts.filter((t) => t.life > 0);
+  popupTexts = popupTexts.filter((t) => t.life > 0);
 
   blinkTimer -= 1;
   if (blinkTimer <= 0) {
@@ -434,6 +570,15 @@ function update() {
   });
   holograms = holograms.filter((h) => h.life > 0 && h.x > -150);
 
+  maybeSpawnFish();
+  if (fish.active) {
+    fish.x -= obstacleSpeed;
+    if (fish.x + fish.width < 0) {
+      fish.active = false;
+    }
+  }
+  checkFishCollision();
+
   obstacle.x -= obstacleSpeed * obstacle.speedMultiplier;
   if (obstacle.x + obstacle.width < 0) {
     randomizeObstacle();
@@ -466,6 +611,8 @@ function update() {
     milestoneTimer = MILESTONE_DURATION;
     nextMilestoneIndex += 1;
   }
+
+  checkAchievements();
 
   const maxSpeedForLevel = Math.min(ABSOLUTE_MAX_OBSTACLE_SPEED, MAX_OBSTACLE_SPEED + (level - 1) * LEVEL_SPEED_BONUS);
   obstacleSpeed = Math.min(maxSpeedForLevel, BASE_OBSTACLE_SPEED + score * SPEED_PER_SCORE);
@@ -1039,15 +1186,16 @@ function drawHud() {
   ctx.fillText('LEVEL ' + level, 20, 28);
   ctx.fillText('SCORE: ' + score, 20, 52);
   ctx.fillText('HIGH SCORE: ' + highScore, 20, 76);
+  ctx.fillText('FISH: ' + fishCollectedThisRun, 20, 100);
 
   if (comboCount > 0) {
     ctx.fillStyle = COLOR_MAGENTA;
-    ctx.fillText('COMBO x' + comboCount, 20, 100);
+    ctx.fillText('COMBO x' + comboCount, 20, 124);
   }
 }
 
-function drawNiceTexts() {
-  niceTexts.forEach((t) => {
+function drawPopupTexts() {
+  popupTexts.forEach((t) => {
     const progress = 1 - t.life / t.maxLife;
     const alpha = t.life / t.maxLife;
     const y = t.y - progress * 20;
@@ -1055,14 +1203,79 @@ function drawNiceTexts() {
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.textAlign = 'center';
-    ctx.shadowColor = COLOR_CYAN;
+    ctx.shadowColor = t.color;
     ctx.shadowBlur = 10;
-    ctx.fillStyle = COLOR_CYAN;
+    ctx.fillStyle = t.color;
     ctx.font = '16px Orbitron, sans-serif';
-    ctx.fillText('NICE!', t.x, y);
+    ctx.fillText(t.label, t.x, y);
     ctx.fillText('+' + t.bonus, t.x, y + 16);
     ctx.restore();
   });
+}
+
+function drawFish() {
+  if (!fish.active) {
+    return;
+  }
+  const color = fish.isRare ? COLOR_GOLD : COLOR_CYAN;
+  const cx = fish.x + fish.width / 2;
+  const cy = fish.y + fish.height / 2;
+
+  ctx.save();
+  ctx.shadowColor = color;
+  ctx.shadowBlur = fish.isRare ? 20 : 12;
+  ctx.fillStyle = color;
+
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, fish.width / 2, fish.height / 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(fish.x, cy);
+  ctx.lineTo(fish.x - fish.width * 0.3, cy - fish.height * 0.4);
+  ctx.lineTo(fish.x - fish.width * 0.3, cy + fish.height * 0.4);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = '#0b0b1a';
+  ctx.beginPath();
+  ctx.arc(fish.x + fish.width * 0.68, cy - fish.height * 0.1, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (fish.isRare) {
+    const pulse = 0.5 + Math.sin(performance.now() / 150) * 0.5;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.3 + pulse * 0.3;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, fish.width / 1.4, fish.height / 1.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function drawAchievementNotice() {
+  if (!currentAchievementNotice) {
+    return;
+  }
+  const t = currentAchievementNotice.timer;
+  const fadeIn = Math.min(1, (ACHIEVEMENT_NOTICE_DURATION - t) / ACHIEVEMENT_FADE_FRAMES);
+  const fadeOut = Math.min(1, t / ACHIEVEMENT_FADE_FRAMES);
+  const alpha = Math.min(fadeIn, fadeOut);
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.textAlign = 'right';
+  ctx.shadowColor = COLOR_GOLD;
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = COLOR_GOLD;
+  ctx.font = '14px Orbitron, sans-serif';
+  ctx.fillText('ACHIEVEMENT UNLOCKED', canvas.width - 20, 28);
+  ctx.fillStyle = COLOR_CYAN;
+  ctx.font = '18px Orbitron, sans-serif';
+  ctx.fillText(currentAchievementNotice.title, canvas.width - 20, 50);
+  ctx.restore();
 }
 
 function drawComboPopup() {
@@ -1142,9 +1355,10 @@ function render() {
   drawGrid();
   drawGround();
   drawObstacle();
+  drawFish();
   drawTrail();
   drawParticles();
-  drawNiceTexts();
+  drawPopupTexts();
   drawPlayer();
   drawLevelUpRing();
   drawHud();
@@ -1154,9 +1368,11 @@ function render() {
     ctx.save();
     ctx.shadowColor = COLOR_CYAN;
     ctx.shadowBlur = 20;
-    drawCenteredText('NEON NEKO RUNNER', canvas.height / 2 - 40, 38);
+    drawCenteredText('NEON NEKO RUNNER', canvas.height / 2 - 60, 38);
     ctx.restore();
-    drawCenteredText('SPACE TO START', canvas.height / 2 + 20, 22);
+    drawCenteredText('BEST SCORE: ' + highScore, canvas.height / 2 - 10, 18);
+    drawCenteredText('TOTAL FISH: ' + totalFishCount, canvas.height / 2 + 14, 18);
+    drawCenteredText('SPACE TO START', canvas.height / 2 + 50, 22);
   } else if (gameState === 'gameover') {
     const blinkOn = Math.floor(performance.now() / 400) % 2 === 0;
     if (blinkOn) {
@@ -1179,6 +1395,8 @@ function render() {
     ctx.fillStyle = `rgba(255, 30, 30, ${(gameOverFlashTimer / GAME_OVER_FLASH_DURATION) * 0.35})`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
+
+  drawAchievementNotice();
 }
 
 function loop() {
