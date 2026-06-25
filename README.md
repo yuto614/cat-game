@@ -33,9 +33,24 @@ PC・モバイルの両方に対応しています。
 * 一時停止機能
 * ハイスコア・収集データのローカル保存（localStorage）
 
+## 動作環境
+
+* ビルド不要のプレーンな HTML / CSS / JavaScript（ES Modules）です。
+* `index.html` をブラウザで直接開くか、ローカルサーバーで配信して動作確認できます。
+* 最新の Chrome / Edge / Firefox / Safari で動作確認しています。
+
 ## 公開URL
 
-GitHub Pages: https://yuto614.github.io/neon-neko-runner/ （公開準備中。公開後にURLを確定してください）
+GitHub Pages: <https://yuto614.github.io/neon-neko-runner/> （公開準備中。公開後にURLを確定してください）
+
+### GitHub Pagesでの公開方法
+
+1. GitHub のリポジトリ画面で **Settings > Pages** を開く。
+2. **Source** を `Deploy from a branch` に設定する。
+3. ブランチを `main`、フォルダを `/ (root)` に設定して **Save** する。
+4. しばらく待つと `https://<ユーザー名>.github.io/<リポジトリ名>/` で公開される。
+
+ビルド手順は不要で、リポジトリの内容がそのまま公開されます。
 
 ## スクリーンショット
 

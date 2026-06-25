@@ -430,6 +430,7 @@ function checkFishCollision() {
   fish.active = false;
 }
 
+// 複数の演出が同時に発生しても短い方で打ち消されないよう、常に大きい値を採用する
 function triggerHitStop(duration) {
   hitStopTimer = Math.max(hitStopTimer, duration);
 }
@@ -619,11 +620,13 @@ canvas.addEventListener('touchstart', (e) => {
 });
 
 function update() {
+  // ヒットストップ中はUIタイマーも含めて1フレーム全体を停止させる
   if (hitStopTimer > 0) {
     hitStopTimer -= 1;
     return;
   }
 
+  // ゲームオーバー・一時停止中も最後まで再生したい演出は、playing判定より前で更新する
   if (gameOverFlashTimer > 0) {
     gameOverFlashTimer -= 1;
   }
@@ -760,6 +763,7 @@ function update() {
   }
   checkFishCollision();
 
+  // speedMultiplierは障害物ごとの見た目の速度差のみに使い、難易度カーブ(obstacleSpeed)には影響させない
   obstacle.x -= obstacleSpeed * obstacle.speedMultiplier;
   if (obstacle.x + obstacle.width < 0) {
     randomizeObstacle();
@@ -1559,6 +1563,7 @@ function drawLevelUpRing() {
 }
 
 function drawLevelUpText() {
+  // MILESTONE表示と重なる場合はMILESTONEを優先し、演出が重ならないようにする
   if (levelUpTimer <= 0 || milestoneTimer > 0) {
     return;
   }
