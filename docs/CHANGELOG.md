@@ -2,6 +2,16 @@
 
 NEON NEKO RUNNER のバージョン履歴です。
 
+## v1.9「Polish & Release Candidate」
+
+* Version 2.0正式版へ向けた品質向上を目的とし、新しい大型ゲームシステムは追加せず既存機能の完成度を高めるバージョン
+* 統計（Statistics）画面を追加（`gameState = 'statistics'`、タイトル画面からTキーで遷移）。総プレイ回数・総プレイ時間・総ジャンプ回数・総魚取得数・総レア魚取得数・最高スコア・最高レベル・最もプレイしたモードを表示し、`cat-game-statistics`に保存
+* プレイ回数・モードごとのプレイ回数はラン開始時（`startGame()`）に、プレイ時間・ジャンプ回数・最高レベルはゲーム終了時にまとめて累計へ反映。既存のスコアシステムには影響なし
+* 設定画面に「RESET SAVE DATA」を追加。選択すると確認画面（`gameState = 'resetConfirm'`、初期選択は安全側の「NO」）を表示し、「YES」を確定した場合のみ`localStorage`を初期化してタイトル画面へ戻る
+* `js/main.js`の処理順を整理し、CONFIG / GLOBAL STATE / DATA / UTILITY / GAME / INPUT / DRAW / INITIALIZE のセクションコメントを追加。挙動は変更していない
+* UI微調整: 一時停止画面の行間、通知（実績解除・スキン解放・ミッション達成）同士の余白、タイトル画面の行間、ランキング画面の列揺れ（スコア・日付を右揃えで整列し1位を金色で強調）を改善。ゲームバランスは変更なし
+* README.mdを公開準備用に更新（操作方法・ゲームモード・アイテム・スキン・実績・ミッション・ランキング・統計・今後の予定を記載）
+
 ## v1.8「Time Attack & Rankings Update」
 
 * 新しいゲームモード「Time Attack」を追加（`GAME_MODES`に要素を追加するだけで実装。既存のClassic・Hardは変更なし）

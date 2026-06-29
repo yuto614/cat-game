@@ -1,3 +1,7 @@
+// ============================================================
+// CONFIG
+// ============================================================
+
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
@@ -14,6 +18,7 @@ const UNLOCKED_SKINS_KEY = 'cat-game-unlocked-skins';
 const SELECTED_MODE_KEY = 'cat-game-selected-mode';
 const MISSIONS_KEY = 'cat-game-missions';
 const TIMEATTACK_RANKING_KEY = 'cat-game-timeattack-ranking';
+const STATISTICS_KEY = 'cat-game-statistics';
 
 const COLOR_CYAN = '#00f6ff';
 const COLOR_MAGENTA = '#ff2d95';
@@ -177,7 +182,109 @@ const DOUBLE_JUMP_GLOW_DURATION = 10;
 
 const DEFAULT_VOLUME = 0.5;
 const SETTINGS_VOLUME_STEP = 0.1;
-const SETTINGS_ROWS = ['bgmVolume', 'seVolume', 'bgmEnabled', 'seEnabled'];
+const SETTINGS_ROWS = ['bgmVolume', 'seVolume', 'bgmEnabled', 'seEnabled', 'resetSaveData'];
+
+// ============================================================
+// GLOBAL STATE
+// ============================================================
+
+let gameState = 'title';
+let score = 0;
+// レベル・障害物速度カーブはモードのスコア倍率を含まない素点で判定し、
+// Hard モードでもレベルアップの実時間ペースをClassicと一致させる
+let rawScoreForLevel = 0;
+let level = 1;
+let highScore = Number(localStorage.getItem(HIGH_SCORE_KEY)) || 0;
+let totalFishCount = Number(localStorage.getItem(TOTAL_FISH_KEY)) || 0;
+let rareFishCount = Number(localStorage.getItem(RARE_FISH_KEY)) || 0;
+let unlockedAchievements = (localStorage.getItem(ACHIEVEMENTS_KEY) || '').split(',').filter(Boolean);
+let fishCollectedThisRun = 0;
+let rareFishCollectedThisRun = 0;
+let timeRemainingFrames = 0;
+let isTimeUp = false;
+let obstacleSpeed = BASE_OBSTACLE_SPEED;
+let trail = [];
+let particles = [];
+let shootingStars = [];
+let levelUpTimer = 0;
+let gameOverFlashTimer = 0;
+let isBlinking = false;
+let blinkTimer = Math.round(randomRange(BLINK_MIN_INTERVAL, BLINK_MAX_INTERVAL));
+let blinkDuration = 0;
+let happyTimer = 0;
+let comboCount = 0;
+let comboTimer = 0;
+let comboPopupTimer = 0;
+let popupTexts = [];
+let milestoneTimer = 0;
+let milestoneScore = 0;
+let nextMilestoneIndex = 0;
+let squashTimer = 0;
+let squashMode = 'none';
+let holograms = [];
+let achievementQueue = [];
+let currentAchievementNotice = null;
+let hitStopTimer = 0;
+let shakeTimer = 0;
+let shakeMagnitude = 0;
+let scorePopTimer = 0;
+let highScoreGlowTimer = 0;
+let rings = [];
+let playerGlowTimer = 0;
+let isNewRecord = false;
+let settingsIndex = 0;
+
+const DEFAULT_STATISTICS = { totalPlayCount: 0, totalPlayTimeFrames: 0, totalJumpCount: 0, highestLevel: 1, modePlayCounts: {} };
+const statistics = Object.assign({}, DEFAULT_STATISTICS, JSON.parse(localStorage.getItem(STATISTICS_KEY) || '{}'));
+let runJumpCount = 0;
+let runPlayTimeFrames = 0;
+const RESET_CONFIRM_OPTIONS = ['NO', 'YES'];
+let resetConfirmSelection = 0;
+
+function saveStatistics() {
+  localStorage.setItem(STATISTICS_KEY, JSON.stringify(statistics));
+}
+
+function recordRunEndStatistics() {
+  statistics.totalPlayTimeFrames += runPlayTimeFrames;
+  statistics.totalJumpCount += runJumpCount;
+  if (level > statistics.highestLevel) {
+    statistics.highestLevel = level;
+  }
+  saveStatistics();
+}
+
+function getMostPlayedModeName() {
+  let bestId = null;
+  let bestCount = 0;
+  GAME_MODES.forEach((mode) => {
+    const count = statistics.modePlayCounts[mode.id] || 0;
+    if (count > bestCount) {
+      bestCount = count;
+      bestId = mode.id;
+    }
+  });
+  if (!bestId) {
+    return '---';
+  }
+  return GAME_MODES.find((mode) => mode.id === bestId).name.toUpperCase();
+}
+
+function formatPlayTime(frames) {
+  const totalSeconds = Math.floor(frames / 60);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes + 'm ' + seconds + 's';
+}
+
+function resetAllSaveData() {
+  localStorage.clear();
+  location.reload();
+}
+
+// ============================================================
+// SAVE/LOAD (オーディオ設定)
+// ============================================================
 
 const BGM_SOURCES = {
   title: 'assets/audio/bgm/title.mp3',
@@ -284,6 +391,10 @@ function setSeEnabled(enabled) {
   seEnabled = enabled;
   localStorage.setItem(SE_ENABLED_KEY, String(enabled));
 }
+
+// ============================================================
+// DATA
+// ============================================================
 
 const SKINS = [
   { id: 'cyber_cat', name: 'Cyber Cat', color: '#00f6ff', unlockType: 'initial', unlockValue: null, unlocked: false },
@@ -645,6 +756,10 @@ function checkItemCollision() {
   item.active = false;
 }
 
+// ============================================================
+// UTILITY
+// ============================================================
+
 const moon = {
   x: canvas.width - 90,
   y: 70,
@@ -705,51 +820,9 @@ const ambientStars = Array.from({ length: AMBIENT_STAR_COUNT }, () => makeAmbien
 
 const buildings = Array.from({ length: BUILDING_COUNT }, () => makeBuilding());
 
-let gameState = 'title';
-let score = 0;
-// レベル・障害物速度カーブはモードのスコア倍率を含まない素点で判定し、
-// Hard モードでもレベルアップの実時間ペースをClassicと一致させる
-let rawScoreForLevel = 0;
-let level = 1;
-let highScore = Number(localStorage.getItem(HIGH_SCORE_KEY)) || 0;
-let totalFishCount = Number(localStorage.getItem(TOTAL_FISH_KEY)) || 0;
-let rareFishCount = Number(localStorage.getItem(RARE_FISH_KEY)) || 0;
-let unlockedAchievements = (localStorage.getItem(ACHIEVEMENTS_KEY) || '').split(',').filter(Boolean);
-let fishCollectedThisRun = 0;
-let rareFishCollectedThisRun = 0;
-let timeRemainingFrames = 0;
-let isTimeUp = false;
-let obstacleSpeed = BASE_OBSTACLE_SPEED;
-let trail = [];
-let particles = [];
-let shootingStars = [];
-let levelUpTimer = 0;
-let gameOverFlashTimer = 0;
-let isBlinking = false;
-let blinkTimer = Math.round(randomRange(BLINK_MIN_INTERVAL, BLINK_MAX_INTERVAL));
-let blinkDuration = 0;
-let happyTimer = 0;
-let comboCount = 0;
-let comboTimer = 0;
-let comboPopupTimer = 0;
-let popupTexts = [];
-let milestoneTimer = 0;
-let milestoneScore = 0;
-let nextMilestoneIndex = 0;
-let squashTimer = 0;
-let squashMode = 'none';
-let holograms = [];
-let achievementQueue = [];
-let currentAchievementNotice = null;
-let hitStopTimer = 0;
-let shakeTimer = 0;
-let shakeMagnitude = 0;
-let scorePopTimer = 0;
-let highScoreGlowTimer = 0;
-let rings = [];
-let playerGlowTimer = 0;
-let isNewRecord = false;
-let settingsIndex = 0;
+// ============================================================
+// GAME
+// ============================================================
 
 function getAvailableObstacleTypes() {
   if (level < 3) {
@@ -970,6 +1043,7 @@ function triggerTimeUp() {
   checkSkinUnlocks();
   checkMissions();
   submitTimeAttackRanking(score);
+  recordRunEndStatistics();
 }
 
 function getComboTier(count) {
@@ -1077,6 +1151,11 @@ function startGame() {
   playerGlowTimer = 0;
   isNewRecord = false;
   player.jumpCount = 0;
+  runJumpCount = 0;
+  runPlayTimeFrames = 0;
+  statistics.totalPlayCount += 1;
+  statistics.modePlayCounts[currentMode.id] = (statistics.modePlayCounts[currentMode.id] || 0) + 1;
+  saveStatistics();
   gameState = 'playing';
   playBgm('playing');
 }
@@ -1088,6 +1167,7 @@ function jumpAction() {
   player.vy = JUMP_STRENGTH;
   player.isJumping = true;
   player.jumpCount += 1;
+  runJumpCount += 1;
   squashTimer = SQUASH_DURATION;
   squashMode = 'jump';
   unlockAchievement('first_jump');
@@ -1127,6 +1207,10 @@ function goToTitle() {
   gameState = 'title';
   checkSkinUnlocks();
 }
+
+// ============================================================
+// INPUT
+// ============================================================
 
 function handleModeSelectKey(code) {
   if (code === 'ArrowUp') {
@@ -1174,6 +1258,26 @@ function handleSkinsKey(code) {
   playSe('select');
 }
 
+function handleResetConfirmKey(code) {
+  if (code === 'ArrowUp' || code === 'ArrowLeft') {
+    resetConfirmSelection = (resetConfirmSelection - 1 + RESET_CONFIRM_OPTIONS.length) % RESET_CONFIRM_OPTIONS.length;
+    return;
+  }
+  if (code === 'ArrowDown' || code === 'ArrowRight') {
+    resetConfirmSelection = (resetConfirmSelection + 1) % RESET_CONFIRM_OPTIONS.length;
+    return;
+  }
+  if (code !== 'Space') {
+    return;
+  }
+  if (RESET_CONFIRM_OPTIONS[resetConfirmSelection] === 'YES') {
+    resetAllSaveData();
+  } else {
+    gameState = 'settings';
+    playSe('select');
+  }
+}
+
 function handleSettingsKey(code) {
   if (code === 'ArrowUp') {
     settingsIndex = (settingsIndex - 1 + SETTINGS_ROWS.length) % SETTINGS_ROWS.length;
@@ -1183,10 +1287,21 @@ function handleSettingsKey(code) {
     settingsIndex = (settingsIndex + 1) % SETTINGS_ROWS.length;
     return;
   }
+  if (code === 'Space') {
+    if (SETTINGS_ROWS[settingsIndex] === 'resetSaveData') {
+      gameState = 'resetConfirm';
+      resetConfirmSelection = 0;
+      playSe('select');
+    }
+    return;
+  }
   if (code !== 'ArrowLeft' && code !== 'ArrowRight') {
     return;
   }
   const row = SETTINGS_ROWS[settingsIndex];
+  if (row === 'resetSaveData') {
+    return;
+  }
   const direction = code === 'ArrowLeft' ? -1 : 1;
   if (row === 'bgmVolume') {
     setBgmVolume(bgmVolume + direction * SETTINGS_VOLUME_STEP);
@@ -1202,7 +1317,11 @@ function handleSettingsKey(code) {
 
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') {
-    if (gameState === 'achievements' || gameState === 'settings' || gameState === 'skins' || gameState === 'modeSelect' || gameState === 'missions' || gameState === 'ranking') {
+    if (gameState === 'resetConfirm') {
+      gameState = 'settings';
+      return;
+    }
+    if (gameState === 'achievements' || gameState === 'settings' || gameState === 'skins' || gameState === 'modeSelect' || gameState === 'missions' || gameState === 'ranking' || gameState === 'statistics') {
       goToTitle();
     }
     return;
@@ -1267,6 +1386,16 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  if (e.code === 'KeyT') {
+    if (gameState === 'title') {
+      gameState = 'statistics';
+      playSe('select');
+    } else if (gameState === 'statistics') {
+      goToTitle();
+    }
+    return;
+  }
+
   if (e.code === 'KeyP') {
     if (gameState === 'playing') {
       gameState = 'paused';
@@ -1277,7 +1406,18 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (gameState === 'settings') {
+    if (e.code === 'Space') {
+      e.preventDefault();
+    }
     handleSettingsKey(e.code);
+    return;
+  }
+
+  if (gameState === 'resetConfirm') {
+    if (e.code === 'Space') {
+      e.preventDefault();
+    }
+    handleResetConfirmKey(e.code);
     return;
   }
 
@@ -1317,6 +1457,10 @@ canvas.addEventListener('touchstart', (e) => {
   e.preventDefault();
   handlePrimaryAction();
 });
+
+// ============================================================
+// GAME (UPDATE LOOP)
+// ============================================================
 
 function update() {
   // ヒットストップ中はUIタイマーも含めて1フレーム全体を停止させる
@@ -1393,6 +1537,8 @@ function update() {
       s.y = randomRange(20, HORIZON_Y - 10);
     }
   });
+
+  runPlayTimeFrames += 1;
 
   if (currentMode.timeLimit) {
     timeRemainingFrames -= 1;
@@ -1563,6 +1709,7 @@ function update() {
       }
       checkSkinUnlocks();
       checkMissions();
+      recordRunEndStatistics();
       return;
     }
   }
@@ -1591,6 +1738,10 @@ function update() {
   const maxSpeedForLevel = Math.min(ABSOLUTE_MAX_OBSTACLE_SPEED, MAX_OBSTACLE_SPEED + (level - 1) * LEVEL_SPEED_BONUS);
   obstacleSpeed = Math.min(maxSpeedForLevel, BASE_OBSTACLE_SPEED + rawScoreForLevel * SPEED_PER_SCORE);
 }
+
+// ============================================================
+// DRAW
+// ============================================================
 
 function getSkyColors() {
   if (level < 6) {
@@ -2430,6 +2581,8 @@ function drawRings() {
 }
 
 const NOTICE_SLIDE_DISTANCE = 60;
+const NOTICE_BASE_Y = 28;
+const NOTICE_SLOT_HEIGHT = 66;
 
 // 通知の演出を「右からスライドイン → 表示 → フェードアウト」に統一するための共通ヘルパー。
 // イン側は位置(offsetX)のみで表現し、アウト側はalphaのみで表現する。
@@ -2456,10 +2609,10 @@ function drawAchievementNotice() {
   ctx.shadowBlur = 14;
   ctx.fillStyle = COLOR_GOLD;
   ctx.font = '14px Orbitron, sans-serif';
-  ctx.fillText('ACHIEVEMENT UNLOCKED', x, 28);
+  ctx.fillText('ACHIEVEMENT UNLOCKED', x, NOTICE_BASE_Y);
   ctx.fillStyle = COLOR_CYAN;
   ctx.font = '18px Orbitron, sans-serif';
-  ctx.fillText(currentAchievementNotice.title, x, 50);
+  ctx.fillText(currentAchievementNotice.title, x, NOTICE_BASE_Y + 22);
   ctx.restore();
 }
 
@@ -2468,7 +2621,7 @@ function drawSkinUnlockNotice() {
     return;
   }
   const anim = getNoticeAnimation(currentSkinUnlockNotice.timer, SKIN_UNLOCK_NOTICE_DURATION, SKIN_UNLOCK_FADE_FRAMES);
-  const baseY = currentAchievementNotice ? 86 : 28;
+  const baseY = NOTICE_BASE_Y + (currentAchievementNotice ? NOTICE_SLOT_HEIGHT : 0);
   const x = canvas.width - 20 + anim.offsetX;
 
   ctx.save();
@@ -2493,7 +2646,7 @@ function drawMissionNotice() {
     return;
   }
   const anim = getNoticeAnimation(currentMissionNotice.timer, MISSION_NOTICE_DURATION, MISSION_NOTICE_FADE_FRAMES);
-  const baseY = 28 + (currentAchievementNotice ? 58 : 0) + (currentSkinUnlockNotice ? 58 : 0);
+  const baseY = NOTICE_BASE_Y + (currentAchievementNotice ? NOTICE_SLOT_HEIGHT : 0) + (currentSkinUnlockNotice ? NOTICE_SLOT_HEIGHT : 0);
   const x = canvas.width - 20 + anim.offsetX;
 
   ctx.save();
@@ -2668,12 +2821,13 @@ function render() {
     drawCenteredText('SKIN : ' + currentSkin.name.toUpperCase(), canvas.height / 2 + 10, 16, currentSkin.color);
 
     drawPulsingCenteredText('SPACE : START', canvas.height / 2 + 36, 16, COLOR_CYAN);
-    drawCenteredText('M : MODE', canvas.height / 2 + 54, 14, COLOR_PURPLE);
-    drawCenteredText('K : SKINS', canvas.height / 2 + 70, 14, COLOR_PURPLE);
-    drawCenteredText('C : MISSIONS', canvas.height / 2 + 86, 14, COLOR_PURPLE);
-    drawCenteredText('S : SETTINGS', canvas.height / 2 + 102, 14, COLOR_PURPLE);
-    drawCenteredText('A : ACHIEVEMENTS', canvas.height / 2 + 118, 14, COLOR_PURPLE);
-    drawCenteredText('R : RANKING', canvas.height / 2 + 134, 14, COLOR_PURPLE);
+    drawCenteredText('M : MODE', canvas.height / 2 + 56, 14, COLOR_PURPLE);
+    drawCenteredText('K : SKINS', canvas.height / 2 + 73, 14, COLOR_PURPLE);
+    drawCenteredText('C : MISSIONS', canvas.height / 2 + 90, 14, COLOR_PURPLE);
+    drawCenteredText('S : SETTINGS', canvas.height / 2 + 107, 14, COLOR_PURPLE);
+    drawCenteredText('A : ACHIEVEMENTS', canvas.height / 2 + 124, 14, COLOR_PURPLE);
+    drawCenteredText('R : RANKING', canvas.height / 2 + 141, 14, COLOR_PURPLE);
+    drawCenteredText('T : STATISTICS', canvas.height / 2 + 158, 14, COLOR_PURPLE);
   } else if (gameState === 'achievements') {
     drawCenteredText('ACHIEVEMENTS', canvas.height / 2 - 160, 26);
     ACHIEVEMENTS.forEach((a, i) => {
@@ -2691,12 +2845,13 @@ function render() {
       { label: 'SE VOLUME', value: Math.round(seVolume * 100) + '%' },
       { label: 'BGM', value: bgmEnabled ? 'ON' : 'OFF' },
       { label: 'SE', value: seEnabled ? 'ON' : 'OFF' },
+      { label: 'RESET SAVE DATA', value: null },
     ];
     rows.forEach((row, i) => {
       const selected = i === settingsIndex;
-      const color = selected ? COLOR_GOLD : COLOR_WHITE;
+      const color = selected ? COLOR_GOLD : (row.value === null ? COLOR_MAGENTA : COLOR_WHITE);
       const prefix = selected ? '> ' : '  ';
-      const text = prefix + row.label + ' : ' + row.value;
+      const text = row.value === null ? prefix + row.label : prefix + row.label + ' : ' + row.value;
       const y = canvas.height / 2 - 80 + i * 36;
       if (selected) {
         drawPulsingCenteredText(text, y, 18, color);
@@ -2704,8 +2859,24 @@ function render() {
         drawCenteredText(text, y, 18, color);
       }
     });
-    drawCenteredText('ARROWS : SELECT / CHANGE', canvas.height / 2 + 110, 14, COLOR_PURPLE);
-    drawCenteredText('ESC / S : BACK', canvas.height / 2 + 132, 14, COLOR_PURPLE);
+    drawCenteredText('ARROWS : SELECT / CHANGE   SPACE : CONFIRM', canvas.height / 2 + 124, 14, COLOR_PURPLE);
+    drawCenteredText('ESC / S : BACK', canvas.height / 2 + 144, 14, COLOR_PURPLE);
+  } else if (gameState === 'resetConfirm') {
+    drawCenteredText('RESET?', canvas.height / 2 - 50, 30, COLOR_MAGENTA);
+    drawCenteredText('ALL SAVE DATA WILL BE ERASED.', canvas.height / 2 - 14, 14, COLOR_WHITE);
+
+    RESET_CONFIRM_OPTIONS.forEach((label, i) => {
+      const selected = i === resetConfirmSelection;
+      const color = selected ? COLOR_GOLD : COLOR_WHITE;
+      const text = (selected ? '> ' : '  ') + label;
+      const y = canvas.height / 2 + 24 + i * 32;
+      if (selected) {
+        drawPulsingCenteredText(text, y, 20, color);
+      } else {
+        drawCenteredText(text, y, 20, color);
+      }
+    });
+    drawCenteredText('ARROWS : SELECT   SPACE : CONFIRM   ESC : CANCEL', canvas.height / 2 + 124, 14, COLOR_PURPLE);
   } else if (gameState === 'skins') {
     const skin = SKINS[skinIndex];
     const isEquipped = currentSkin.id === skin.id;
@@ -2768,22 +2939,52 @@ function render() {
   } else if (gameState === 'ranking') {
     drawCenteredText('TIME ATTACK RANKING', canvas.height / 2 - 150, 24);
 
+    const rankX = canvas.width / 2 - 150;
+    const scoreX = canvas.width / 2 + 40;
+    const dateX = canvas.width / 2 + 150;
+
     for (let i = 0; i < TIMEATTACK_RANKING_SIZE; i++) {
       const entry = timeAttackRanking[i];
-      const y = canvas.height / 2 - 96 + i * 32;
+      const y = canvas.height / 2 - 96 + i * 34;
+      const color = !entry ? COLOR_PURPLE : (i === 0 ? COLOR_GOLD : COLOR_WHITE);
+
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.font = '18px Orbitron, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText((i + 1) + '.', rankX, y);
+      ctx.textAlign = 'right';
+      ctx.fillText(entry ? String(entry.score) : '---', scoreX, y);
       if (entry) {
-        drawCenteredText((i + 1) + '.  ' + entry.score + '  ' + entry.date, y, 18, COLOR_WHITE);
-      } else {
-        drawCenteredText((i + 1) + '.  ---', y, 18, COLOR_PURPLE);
+        ctx.fillText(entry.date, dateX, y);
       }
+      ctx.restore();
     }
 
     drawCenteredText('ESC / R : BACK', canvas.height / 2 + 132, 14, COLOR_PURPLE);
+  } else if (gameState === 'statistics') {
+    drawCenteredText('STATISTICS', canvas.height / 2 - 160, 26);
+
+    const rows = [
+      ['PLAY COUNT', String(statistics.totalPlayCount)],
+      ['PLAY TIME', formatPlayTime(statistics.totalPlayTimeFrames)],
+      ['JUMP COUNT', String(statistics.totalJumpCount)],
+      ['FISH COLLECTED', String(totalFishCount)],
+      ['RARE FISH COLLECTED', String(rareFishCount)],
+      ['HIGH SCORE', String(highScore)],
+      ['HIGHEST LEVEL', String(statistics.highestLevel)],
+      ['MOST PLAYED MODE', getMostPlayedModeName()],
+    ];
+    rows.forEach((row, i) => {
+      drawCenteredText(row[0] + ' : ' + row[1], canvas.height / 2 - 112 + i * 28, 16, COLOR_WHITE);
+    });
+
+    drawCenteredText('ESC / T : BACK', canvas.height / 2 + 132, 14, COLOR_PURPLE);
   } else if (gameState === 'paused') {
     drawCenteredText('PAUSED', canvas.height / 2 - 40, 32);
-    drawCenteredText('MODE : ' + currentMode.name.toUpperCase(), canvas.height / 2 - 4, 16, COLOR_GOLD);
-    drawCenteredText('SKIN : ' + currentSkin.name.toUpperCase(), canvas.height / 2 + 16, 16, currentSkin.color);
-    drawCenteredText('PRESS P TO RESUME', canvas.height / 2 + 44, 18);
+    drawCenteredText('MODE : ' + currentMode.name.toUpperCase(), canvas.height / 2, 16, COLOR_GOLD);
+    drawCenteredText('SKIN : ' + currentSkin.name.toUpperCase(), canvas.height / 2 + 24, 16, currentSkin.color);
+    drawCenteredText('PRESS P TO RESUME', canvas.height / 2 + 56, 18);
   } else if (gameState === 'gameover' && currentMode.id === 'timeAttack') {
     const blinkOn = Math.floor(performance.now() / 400) % 2 === 0;
     if (blinkOn) {
@@ -2833,6 +3034,10 @@ function render() {
   drawSkinUnlockNotice();
   drawMissionNotice();
 }
+
+// ============================================================
+// INITIALIZE
+// ============================================================
 
 function loop() {
   update();

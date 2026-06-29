@@ -1,4 +1,4 @@
-# NEON NEKO RUNNER 仕様書（Version 1.8）
+# NEON NEKO RUNNER 仕様書（Version 1.9）
 
 ## ゲーム概要
 
@@ -42,7 +42,7 @@ docs/           # ドキュメント（本書・CHANGELOG・ROADMAP）
 
 ## ゲームルール
 
-* `gameState` によるシンプルな状態管理（`title` / `playing` / `paused` / `gameover` / `achievements` / `settings` / `skins` / `modeSelect` / `missions` / `ranking`）
+* `gameState` によるシンプルな状態管理（`title` / `playing` / `paused` / `gameover` / `achievements` / `settings` / `skins` / `modeSelect` / `missions` / `ranking` / `statistics` / `resetConfirm`）
 * プレイ中は自動で前進し、障害物に衝突すると `gameover` になる
 * スコアは生存時間・ニアミス・魚の収集によって加算される
 * ハイスコアや収集データは `localStorage` に保存され、次回プレイ以降も保持される
@@ -60,10 +60,12 @@ docs/           # ドキュメント（本書・CHANGELOG・ROADMAP）
 | M キー | タイトル画面からモード選択画面の表示 |
 | C キー | タイトル画面からミッション画面の表示 |
 | R キー | タイトル画面からランキング画面の表示 |
-| ESC キー | 実績一覧・設定画面・スキン選択画面・モード選択画面・ミッション画面・ランキング画面からタイトルへ戻る |
-| ↑ / ↓ キー | 設定画面で項目を選択 / モード選択画面でモードを切替 / ミッション画面でミッションを切替 |
-| ← / → キー | 設定画面で値を変更 / スキン選択画面でスキンを切替 |
-| スペースキー | スキン選択画面で装備（未解放スキンは装備不可） / モード選択画面でモードを選択 |
+| T キー | タイトル画面から統計（Statistics）画面の表示 |
+| ESC キー | 実績一覧・設定画面・スキン選択画面・モード選択画面・ミッション画面・ランキング画面・統計画面からタイトルへ戻る |
+| ↑ / ↓ キー | 設定画面で項目を選択 / モード選択画面でモードを切替 / ミッション画面でミッションを切替 / リセット確認画面でYES・NOを選択 |
+| ← / → キー | 設定画面で値を変更 / スキン選択画面でスキンを切替 / リセット確認画面でYES・NOを選択 |
+| スペースキー | スキン選択画面で装備（未解放スキンは装備不可） / モード選択画面でモードを選択 / 設定画面で「RESET SAVE DATA」を選択中に確認画面へ進む / リセット確認画面でYES・NOを確定 |
+| ESC キー（リセット確認画面） | 確認画面をキャンセルし設定画面へ戻る（タイトルへは戻らない） |
 
 PC・モバイルの両方に対応。
 
@@ -186,6 +188,7 @@ PC・モバイルの両方に対応。
   * `S : SETTINGS`
   * `A : ACHIEVEMENTS`
   * `R : RANKING`
+  * `T : STATISTICS`
 
 ## GAME OVER画面
 
@@ -222,9 +225,18 @@ PC・モバイルの両方に対応。
 ## 設定画面
 
 * タイトル画面から S キーで遷移（`gameState = 'settings'`）
-* 設定項目: 「BGM VOLUME」「SE VOLUME」「BGM」「SE」の4項目
-* ↑ / ↓ キーで項目選択、← / → キーで値を変更（音量は10%刻み、ON/OFFは切り替え）
+* 設定項目: 「BGM VOLUME」「SE VOLUME」「BGM」「SE」「RESET SAVE DATA」の5項目
+* ↑ / ↓ キーで項目選択、← / → キーで値を変更（音量は10%刻み、ON/OFFは切り替え）。「RESET SAVE DATA」には変更可能な値がないため ← / → キーは無効
+* 「RESET SAVE DATA」を選択中にスペースキーを押すと、リセット確認画面（`gameState = 'resetConfirm'`）へ遷移する
 * ESC キー / S キーでタイトル画面へ戻る
+
+## リセット確認画面（Polish & Release Candidate）
+
+* 設定画面から「RESET SAVE DATA」選択時にスペースキーで遷移（`gameState = 'resetConfirm'`）
+* 「RESET?」見出しと「YES」「NO」の2択を表示（初期選択は安全側の「NO」）
+* ↑ / ↓ または ← / → キーで選択、スペースキーで確定
+* 「YES」を確定した場合のみ `localStorage` をすべて初期化（`localStorage.clear()`）し、ページを再読み込みしてタイトル画面に戻す
+* 「NO」を確定、または ESC キーを押した場合は設定画面へ戻る（タイトルへは戻らない）
 
 ## スキンコレクション
 
@@ -314,6 +326,28 @@ PC・モバイルの両方に対応。
   * 「TIME ATTACK RANKING」見出しと1位〜5位（スコア・記録日）を表示。記録がない順位は「---」を表示
   * ESC キー / R キーでタイトル画面へ戻る（一覧表示のみのため、上下キーでの選択操作はない）
 
+## 統計（Polish & Release Candidate）
+
+* プレイの積み重ねを振り返れる統計画面を搭載（`gameState = 'statistics'`、タイトル画面から T キーで遷移）
+* 表示内容
+
+| 項目 | 内容 |
+| --- | --- |
+| PLAY COUNT | 総プレイ回数（`startGame()` が呼ばれた回数） |
+| PLAY TIME | 総プレイ時間（`playing` 中のフレーム数を合計し「Xm Ys」形式で表示） |
+| JUMP COUNT | 総ジャンプ回数（通常ジャンプ・ダブルジャンプの両方を含む） |
+| FISH COLLECTED | 総魚取得数（既存の `cat-game-total-fish` をそのまま表示） |
+| RARE FISH COLLECTED | 総レア魚取得数（既存の `cat-game-rare-fish` をそのまま表示） |
+| HIGH SCORE | ハイスコア（既存の `cat-game-high-score` をそのまま表示） |
+| HIGHEST LEVEL | 到達した最高レベル |
+| MOST PLAYED MODE | プレイ回数が最も多いゲームモード（同数の場合は `GAME_MODES` の先頭側を優先） |
+
+* プレイ時間・ジャンプ回数・最高レベルはゲーム終了時（衝突による GAME OVER / Time Attack の TIME UP のいずれも）にまとめて累計へ反映し、`localStorage`（`cat-game-statistics`）へ保存する
+* プレイ回数・モードごとのプレイ回数は `startGame()` が呼ばれた瞬間（ラン開始時）に加算・保存する
+* 総魚取得数・総レア魚取得数・ハイスコアは既存のシステム（魚収集・ハイスコア更新処理）をそのまま参照し、統計用に値を重複して持たない
+* 既存のスコアシステム・レベルシステム・ゲームバランスには影響しない
+* ESC キー / T キーでタイトル画面へ戻る
+
 ## ミッションシステム（Challenge Missions Update）
 
 * 実績（Achievements）とは別の、ゲームプレイの目標となるミッションシステムを搭載
@@ -360,6 +394,7 @@ PC・モバイルの両方に対応。
 | `cat-game-selected-mode` | 選択中のゲームモードID |
 | `cat-game-missions` | ミッション関連データ（達成済みID・Hard自己最高スコア・Shield回避回数をJSONで保存） |
 | `cat-game-timeattack-ranking` | Time Attack専用ランキング上位5件（`score` / `date` の配列をJSONで保存） |
+| `cat-game-statistics` | 統計情報（総プレイ回数・総プレイ時間・総ジャンプ回数・最高レベル・モードごとのプレイ回数をJSONで保存） |
 
 ## パフォーマンス方針
 
