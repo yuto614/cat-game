@@ -9,6 +9,8 @@ const BGM_VOLUME_KEY = 'cat-game-bgm-volume';
 const SE_VOLUME_KEY = 'cat-game-se-volume';
 const BGM_ENABLED_KEY = 'cat-game-bgm-enabled';
 const SE_ENABLED_KEY = 'cat-game-se-enabled';
+const SELECTED_SKIN_KEY = 'cat-game-selected-skin';
+const UNLOCKED_SKINS_KEY = 'cat-game-unlocked-skins';
 
 const COLOR_CYAN = '#00f6ff';
 const COLOR_MAGENTA = '#ff2d95';
@@ -29,7 +31,6 @@ const player = {
   y: 358,
   width: 52,
   height: 52,
-  color: COLOR_CYAN,
   vy: 0,
   isJumping: false,
   jumpCount: 0,
@@ -265,6 +266,73 @@ function setBgmEnabled(enabled) {
 function setSeEnabled(enabled) {
   seEnabled = enabled;
   localStorage.setItem(SE_ENABLED_KEY, String(enabled));
+}
+
+const SKINS = [
+  { id: 'cyber_cat', name: 'Cyber Cat', color: '#00f6ff', unlockType: 'initial', unlockValue: null, unlocked: false },
+  { id: 'pink_cat', name: 'Pink Cat', color: '#ff4de3', unlockType: 'score', unlockValue: 3000, unlocked: false },
+  { id: 'golden_cat', name: 'Golden Cat', color: '#ffd700', unlockType: 'rareFish', unlockValue: 10, unlocked: false },
+  { id: 'shadow_cat', name: 'Shadow Cat', color: '#444444', unlockType: 'allAchievements', unlockValue: null, unlocked: false },
+];
+const SKIN_UNLOCK_NOTICE_DURATION = 150;
+const SKIN_UNLOCK_FADE_FRAMES = 15;
+
+let unlockedSkinIds = (localStorage.getItem(UNLOCKED_SKINS_KEY) || '').split(',').filter(Boolean);
+SKINS.forEach((skin) => {
+  skin.unlocked = skin.unlockType === 'initial' || unlockedSkinIds.includes(skin.id);
+});
+
+const storedSkinId = localStorage.getItem(SELECTED_SKIN_KEY);
+let currentSkin = SKINS.find((skin) => skin.id === storedSkinId && skin.unlocked) || SKINS[0];
+let skinIndex = Math.max(0, SKINS.findIndex((skin) => skin.id === currentSkin.id));
+let skinUnlockQueue = [];
+let currentSkinUnlockNotice = null;
+
+function selectSkin(skin) {
+  currentSkin = skin;
+  localStorage.setItem(SELECTED_SKIN_KEY, skin.id);
+}
+
+function getSkinUnlockHint(skin) {
+  if (skin.unlockType === 'score') {
+    return 'SCORE ' + skin.unlockValue + '+';
+  }
+  if (skin.unlockType === 'rareFish') {
+    return 'RARE FISH x' + skin.unlockValue;
+  }
+  if (skin.unlockType === 'allAchievements') {
+    return 'ALL ACHIEVEMENTS';
+  }
+  return '';
+}
+
+function checkSkinUnlocks() {
+  const newlyUnlocked = [];
+  SKINS.forEach((skin) => {
+    if (skin.unlocked) {
+      return;
+    }
+    let shouldUnlock = false;
+    if (skin.unlockType === 'score') {
+      shouldUnlock = highScore >= skin.unlockValue;
+    } else if (skin.unlockType === 'rareFish') {
+      shouldUnlock = rareFishCount >= skin.unlockValue;
+    } else if (skin.unlockType === 'allAchievements') {
+      shouldUnlock = unlockedAchievements.length >= ACHIEVEMENTS.length;
+    }
+    if (shouldUnlock) {
+      skin.unlocked = true;
+      newlyUnlocked.push(skin);
+    }
+  });
+  if (newlyUnlocked.length === 0) {
+    return;
+  }
+  unlockedSkinIds.push(...newlyUnlocked.map((skin) => skin.id));
+  localStorage.setItem(UNLOCKED_SKINS_KEY, unlockedSkinIds.join(','));
+  newlyUnlocked.forEach((skin) => {
+    skinUnlockQueue.push(skin.id);
+  });
 }
 
 const moon = {
@@ -698,6 +766,31 @@ function handlePrimaryAction() {
   jumpAction();
 }
 
+function goToTitle() {
+  gameState = 'title';
+  checkSkinUnlocks();
+}
+
+function handleSkinsKey(code) {
+  if (code === 'ArrowLeft') {
+    skinIndex = (skinIndex - 1 + SKINS.length) % SKINS.length;
+    return;
+  }
+  if (code === 'ArrowRight') {
+    skinIndex = (skinIndex + 1) % SKINS.length;
+    return;
+  }
+  if (code !== 'Space') {
+    return;
+  }
+  const skin = SKINS[skinIndex];
+  if (!skin.unlocked) {
+    return;
+  }
+  selectSkin(skin);
+  playSe('select');
+}
+
 function handleSettingsKey(code) {
   if (code === 'ArrowUp') {
     settingsIndex = (settingsIndex - 1 + SETTINGS_ROWS.length) % SETTINGS_ROWS.length;
@@ -726,8 +819,8 @@ function handleSettingsKey(code) {
 
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') {
-    if (gameState === 'achievements' || gameState === 'settings') {
-      gameState = 'title';
+    if (gameState === 'achievements' || gameState === 'settings' || gameState === 'skins') {
+      goToTitle();
     }
     return;
   }
@@ -736,7 +829,7 @@ window.addEventListener('keydown', (e) => {
     if (gameState === 'title') {
       gameState = 'achievements';
     } else if (gameState === 'achievements') {
-      gameState = 'title';
+      goToTitle();
     }
     return;
   }
@@ -746,7 +839,17 @@ window.addEventListener('keydown', (e) => {
       gameState = 'settings';
       playSe('select');
     } else if (gameState === 'settings') {
-      gameState = 'title';
+      goToTitle();
+    }
+    return;
+  }
+
+  if (e.code === 'KeyK') {
+    if (gameState === 'title') {
+      gameState = 'skins';
+      playSe('select');
+    } else if (gameState === 'skins') {
+      goToTitle();
     }
     return;
   }
@@ -762,6 +865,14 @@ window.addEventListener('keydown', (e) => {
 
   if (gameState === 'settings') {
     handleSettingsKey(e.code);
+    return;
+  }
+
+  if (gameState === 'skins') {
+    if (e.code === 'Space') {
+      e.preventDefault();
+    }
+    handleSkinsKey(e.code);
     return;
   }
 
@@ -819,6 +930,18 @@ function update() {
     const id = achievementQueue.shift();
     const def = ACHIEVEMENTS.find((a) => a.id === id);
     currentAchievementNotice = { title: def.title, timer: ACHIEVEMENT_NOTICE_DURATION };
+  }
+
+  if (currentSkinUnlockNotice) {
+    currentSkinUnlockNotice.timer -= 1;
+    if (currentSkinUnlockNotice.timer <= 0) {
+      currentSkinUnlockNotice = null;
+    }
+  }
+  if (!currentSkinUnlockNotice && skinUnlockQueue.length > 0) {
+    const id = skinUnlockQueue.shift();
+    const skin = SKINS.find((s) => s.id === id);
+    currentSkinUnlockNotice = { name: skin.name, timer: SKIN_UNLOCK_NOTICE_DURATION };
   }
 
   if (gameState !== 'playing') {
@@ -945,6 +1068,7 @@ function update() {
       highScoreGlowTimer = HIGH_SCORE_GLOW_DURATION;
       isNewRecord = true;
     }
+    checkSkinUnlocks();
     return;
   }
 
@@ -1326,7 +1450,7 @@ function drawObstacle() {
 function drawTrail() {
   trail.forEach((pos, index) => {
     ctx.globalAlpha = ((index + 1) / trail.length) * 0.25;
-    ctx.fillStyle = player.color;
+    ctx.fillStyle = currentSkin.color;
     ctx.fillRect(pos.x, pos.y, player.width, player.height);
   });
   ctx.globalAlpha = 1;
@@ -1357,9 +1481,9 @@ function getExpression() {
 function drawTail() {
   const tailSway = Math.sin(performance.now() / 280) * (player.isJumping ? 8 : 4);
   ctx.save();
-  ctx.shadowColor = player.color;
+  ctx.shadowColor = currentSkin.color;
   ctx.shadowBlur = 12;
-  ctx.strokeStyle = player.color;
+  ctx.strokeStyle = currentSkin.color;
   ctx.lineWidth = 7;
   ctx.lineCap = 'round';
   ctx.beginPath();
@@ -1380,7 +1504,7 @@ function drawPaws() {
   }
   const runFrame = Math.floor(performance.now() / 150) % 2;
   const legOffset = runFrame === 0 ? 0 : 4;
-  ctx.fillStyle = player.color;
+  ctx.fillStyle = currentSkin.color;
   ctx.beginPath();
   ctx.roundRect(player.x + 6 + legOffset, player.y + player.height - 4, 7, 5, 2);
   ctx.fill();
@@ -1395,9 +1519,9 @@ function drawBody() {
   const glowBoost = playerGlowTimer > 0 ? (playerGlowTimer / DOUBLE_JUMP_GLOW_DURATION) * 26 : 0;
 
   ctx.save();
-  ctx.shadowColor = player.color;
+  ctx.shadowColor = currentSkin.color;
   ctx.shadowBlur = 18 + glowBoost;
-  ctx.fillStyle = player.color;
+  ctx.fillStyle = currentSkin.color;
   ctx.beginPath();
   ctx.roundRect(player.x, player.y, player.width, player.height, player.width * 0.4);
   ctx.fill();
@@ -1682,6 +1806,33 @@ function drawAchievementNotice() {
   ctx.restore();
 }
 
+function drawSkinUnlockNotice() {
+  if (!currentSkinUnlockNotice) {
+    return;
+  }
+  const t = currentSkinUnlockNotice.timer;
+  const fadeIn = Math.min(1, (SKIN_UNLOCK_NOTICE_DURATION - t) / SKIN_UNLOCK_FADE_FRAMES);
+  const fadeOut = Math.min(1, t / SKIN_UNLOCK_FADE_FRAMES);
+  const alpha = Math.min(fadeIn, fadeOut);
+  const baseY = currentAchievementNotice ? 86 : 28;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.textAlign = 'right';
+  ctx.shadowColor = COLOR_GOLD;
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = COLOR_GOLD;
+  ctx.font = '14px Orbitron, sans-serif';
+  ctx.fillText('NEW SKIN!', canvas.width - 20, baseY);
+  ctx.fillStyle = COLOR_CYAN;
+  ctx.font = '18px Orbitron, sans-serif';
+  ctx.fillText(currentSkinUnlockNotice.name, canvas.width - 20, baseY + 22);
+  ctx.fillStyle = COLOR_WHITE;
+  ctx.font = '14px Orbitron, sans-serif';
+  ctx.fillText('UNLOCKED!', canvas.width - 20, baseY + 40);
+  ctx.restore();
+}
+
 function drawComboPopup() {
   if (comboPopupTimer <= 0 || comboCount < 2) {
     return;
@@ -1804,17 +1955,17 @@ function render() {
     drawCenteredText('NEON NEKO RUNNER', canvas.height / 2 - 140, 36);
     ctx.restore();
 
-    drawCenteredText('SPACE / TAP TO JUMP', canvas.height / 2 - 100, 14, COLOR_WHITE);
-    drawCenteredText('COLLECT FISH', canvas.height / 2 - 81, 14, COLOR_WHITE);
-    drawCenteredText('AVOID OBSTACLES', canvas.height / 2 - 62, 14, COLOR_WHITE);
+    drawCenteredText('COLLECT FISH', canvas.height / 2 - 100, 14, COLOR_WHITE);
+    drawCenteredText('AVOID OBSTACLES', canvas.height / 2 - 81, 14, COLOR_WHITE);
 
-    drawCenteredText('BEST SCORE: ' + highScore, canvas.height / 2 - 29, 16);
-    drawCenteredText('TOTAL FISH: ' + totalFishCount, canvas.height / 2 - 7, 16);
-    drawCenteredText('ACHIEVEMENTS ' + unlockedAchievements.length + ' / ' + ACHIEVEMENTS.length + ' UNLOCKED', canvas.height / 2 + 15, 16);
-    drawCenteredText('A KEY : VIEW ACHIEVEMENTS', canvas.height / 2 + 36, 13, COLOR_PURPLE);
-    drawCenteredText('S KEY : SETTINGS', canvas.height / 2 + 53, 13, COLOR_PURPLE);
+    drawCenteredText('BEST SCORE: ' + highScore, canvas.height / 2 - 48, 16);
+    drawCenteredText('TOTAL FISH: ' + totalFishCount, canvas.height / 2 - 26, 16);
+    drawCenteredText('ACHIEVEMENTS ' + unlockedAchievements.length + ' / ' + ACHIEVEMENTS.length + ' UNLOCKED', canvas.height / 2 - 4, 16);
 
-    drawCenteredText('SPACE TO START', canvas.height / 2 + 82, 22);
+    drawCenteredText('SPACE : START', canvas.height / 2 + 24, 14, COLOR_PURPLE);
+    drawCenteredText('S : SETTINGS', canvas.height / 2 + 41, 14, COLOR_PURPLE);
+    drawCenteredText('A : ACHIEVEMENTS', canvas.height / 2 + 58, 14, COLOR_PURPLE);
+    drawCenteredText('K : SKINS', canvas.height / 2 + 75, 14, COLOR_PURPLE);
   } else if (gameState === 'achievements') {
     drawCenteredText('ACHIEVEMENTS', canvas.height / 2 - 160, 26);
     ACHIEVEMENTS.forEach((a, i) => {
@@ -1841,6 +1992,34 @@ function render() {
     });
     drawCenteredText('ARROWS : SELECT / CHANGE', canvas.height / 2 + 110, 14, COLOR_PURPLE);
     drawCenteredText('ESC / S : BACK', canvas.height / 2 + 132, 14, COLOR_PURPLE);
+  } else if (gameState === 'skins') {
+    const skin = SKINS[skinIndex];
+    const isEquipped = currentSkin.id === skin.id;
+
+    drawCenteredText('SKINS', canvas.height / 2 - 150, 26);
+
+    ctx.save();
+    ctx.shadowColor = skin.color;
+    ctx.shadowBlur = 20;
+    ctx.fillStyle = skin.color;
+    ctx.beginPath();
+    ctx.roundRect(canvas.width / 2 - 30, canvas.height / 2 - 110, 60, 60, 20);
+    ctx.fill();
+    ctx.restore();
+
+    drawCenteredText(skin.name, canvas.height / 2 - 28, 22, skin.unlocked ? COLOR_WHITE : COLOR_PURPLE);
+
+    if (isEquipped) {
+      drawCenteredText('EQUIPPED', canvas.height / 2 - 4, 14, COLOR_GOLD);
+    } else if (skin.unlocked) {
+      drawCenteredText('UNLOCKED', canvas.height / 2 - 4, 14, COLOR_CYAN);
+    } else {
+      drawCenteredText('LOCKED : ' + getSkinUnlockHint(skin), canvas.height / 2 - 4, 14, COLOR_MAGENTA);
+    }
+
+    drawCenteredText('< ' + (skinIndex + 1) + ' / ' + SKINS.length + ' >', canvas.height / 2 + 30, 16, COLOR_WHITE);
+    drawCenteredText('ARROWS : SWITCH   SPACE : EQUIP', canvas.height / 2 + 110, 14, COLOR_PURPLE);
+    drawCenteredText('ESC / K : BACK', canvas.height / 2 + 132, 14, COLOR_PURPLE);
   } else if (gameState === 'paused') {
     drawCenteredText('PAUSED', canvas.height / 2 - 10, 32);
     drawCenteredText('PRESS P TO RESUME', canvas.height / 2 + 22, 18);
@@ -1871,6 +2050,7 @@ function render() {
   }
 
   drawAchievementNotice();
+  drawSkinUnlockNotice();
 }
 
 function loop() {

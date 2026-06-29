@@ -1,4 +1,4 @@
-# NEON NEKO RUNNER 仕様書（Version 1.1）
+# NEON NEKO RUNNER 仕様書（Version 1.2）
 
 ## ゲーム概要
 
@@ -42,7 +42,7 @@ docs/           # ドキュメント（本書・CHANGELOG・ROADMAP）
 
 ## ゲームルール
 
-* `gameState` によるシンプルな状態管理（`title` / `playing` / `paused` / `gameover` / `achievements`）
+* `gameState` によるシンプルな状態管理（`title` / `playing` / `paused` / `gameover` / `achievements` / `settings` / `skins`）
 * プレイ中は自動で前進し、障害物に衝突すると `gameover` になる
 * スコアは生存時間・ニアミス・魚の収集によって加算される
 * ハイスコアや収集データは `localStorage` に保存され、次回プレイ以降も保持される
@@ -56,16 +56,18 @@ docs/           # ドキュメント（本書・CHANGELOG・ROADMAP）
 | P キー | 一時停止 / 再開 |
 | A キー | タイトル画面から実績一覧の表示 |
 | S キー | タイトル画面から設定画面の表示 |
-| ESC キー | 実績一覧・設定画面からタイトルへ戻る |
+| K キー | タイトル画面からスキン選択画面の表示 |
+| ESC キー | 実績一覧・設定画面・スキン選択画面からタイトルへ戻る |
 | ↑ / ↓ キー | 設定画面で項目を選択 |
-| ← / → キー | 設定画面で値を変更 |
+| ← / → キー | 設定画面で値を変更 / スキン選択画面でスキンを切替 |
+| スペースキー | スキン選択画面で装備（未解放スキンは装備不可） |
 
 PC・モバイルの両方に対応。
 
 ## プレイヤー仕様
 
 * 猫モチーフのキャラクターを Canvas の図形（角丸ボディ・三角の耳・尾・肉球・ヒゲ・顔）で描画
-* サイズ 52×52px、本体カラーはシアン（`#00f6ff`）
+* サイズ 52×52px、本体カラーは装備中のスキン（`currentSkin.color`）を参照する
 * 表情は次の4種類を状況に応じて切り替える
   * `normal`: 通常時
   * `blink`: 一定間隔（180〜300フレームごと、6フレーム間）でまばたき
@@ -168,11 +170,12 @@ PC・モバイルの両方に対応。
 ## タイトル画面
 
 * タイトルロゴ「NEON NEKO RUNNER」（シアン発光）
-* 操作説明（SPACE/TAP TO JUMP、COLLECT FISH、AVOID OBSTACLES）
-* ベストスコア・累計魚取得数・実績解除数を表示
-* 「A KEY: VIEW ACHIEVEMENTS」から実績一覧画面へ遷移可能
-* 「S KEY: SETTINGS」から設定画面へ遷移可能
-* 「SPACE TO START」でゲーム開始
+* ゲーム内容（COLLECT FISH、AVOID OBSTACLES）とベストスコア・累計魚取得数・実績解除数を表示
+* 操作説明を以下の形式で表示
+  * `SPACE : START`
+  * `S : SETTINGS`
+  * `A : ACHIEVEMENTS`
+  * `K : SKINS`
 
 ## GAME OVER画面
 
@@ -202,6 +205,29 @@ PC・モバイルの両方に対応。
 * ↑ / ↓ キーで項目選択、← / → キーで値を変更（音量は10%刻み、ON/OFFは切り替え）
 * ESC キー / S キーでタイトル画面へ戻る
 
+## スキンコレクション
+
+* プレイヤーの見た目（色）を切り替えられるスキンシステムを搭載
+* スキンは配列（`SKINS`）で管理し、各スキンは `id` / `name` / `color` / `unlockType` / `unlockValue` / `unlocked` を持つ。新しいスキンを追加する場合は配列へ要素を追加するだけでよい
+* 初期スキン4種
+
+| スキン名 | カラー | 解放条件 |
+| --- | --- | --- |
+| Cyber Cat | `#00f6ff` | 初期解放 |
+| Pink Cat | `#ff4de3` | ハイスコア3000以上 |
+| Golden Cat | `#ffd700` | 累計レア魚取得数10匹以上 |
+| Shadow Cat | `#444444` | 全実績解除 |
+
+* 解放判定はゲームオーバー時、またはタイトル画面へ戻ったタイミングで実行する
+* 新しく解放されたスキンがある場合、画面右上に「NEW SKIN!」「スキン名」「UNLOCKED!」を表示する（実績通知と同様のキュー方式で、複数同時解放にも対応）
+* スキン選択画面（`gameState = 'skins'`、タイトル画面から K キーで遷移）
+  * ← / → キーでスキンを切替表示
+  * スペースキーで装備（未解放スキンは装備不可）
+  * スキン名・装備状態（EQUIPPED / UNLOCKED / LOCKED）・未解放時は解放条件を表示
+  * ESC キー / K キーでタイトル画面へ戻る
+* 装備中スキンはゲームプレイ中の本体カラーにも即時反映される
+* レベルシステム・難易度・スコア計算など既存のゲームバランスには影響しない
+
 ## モバイル対応
 
 * `viewport` メタタグで画面幅に追従
@@ -220,6 +246,8 @@ PC・モバイルの両方に対応。
 | `cat-game-se-volume` | SE音量（0〜1） |
 | `cat-game-bgm-enabled` | BGM ON/OFF（`true` / `false`） |
 | `cat-game-se-enabled` | SE ON/OFF（`true` / `false`） |
+| `cat-game-selected-skin` | 装備中のスキンID |
+| `cat-game-unlocked-skins` | 解放済みスキンID（カンマ区切り） |
 
 ## パフォーマンス方針
 
