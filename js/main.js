@@ -17,6 +17,7 @@ const COLOR_MAGENTA = '#ff2d95';
 const COLOR_PURPLE = '#b14eff';
 const COLOR_WHITE = '#f5f5ff';
 const COLOR_GOLD = '#ffd24a';
+const COLOR_LIGHTBLUE = '#7fdbff';
 
 const ground = {
   x: 0,
@@ -348,13 +349,16 @@ function checkSkinUnlocks() {
 }
 
 const ITEM_DEFS = [
-  { id: 'shield', name: 'Shield', color: COLOR_CYAN, duration: 300, effect: 'shield' },
-  { id: 'magnet', name: 'Magnet', color: COLOR_MAGENTA, duration: 480, effect: 'magnet' },
+  { id: 'shield', name: 'Shield', color: COLOR_CYAN, duration: 300, effect: 'shield', label: 'SHIELD!' },
+  { id: 'magnet', name: 'Magnet', color: COLOR_MAGENTA, duration: 480, effect: 'magnet', label: 'MAGNET!' },
+  { id: 'scoreBoost', name: 'Score Boost', color: COLOR_GOLD, duration: 600, effect: 'scoreBoost', label: 'SCORE x2!' },
+  { id: 'slowTime', name: 'Slow Time', color: COLOR_LIGHTBLUE, duration: 360, effect: 'slowTime', label: 'SLOW TIME!' },
 ];
 const ITEM_SPAWN_INTERVAL = 300;
 const ITEM_SPAWN_CHANCE = 0.5;
 const MAGNET_RANGE = 220;
 const MAGNET_PULL_SPEED = 6;
+const SLOW_TIME_FACTOR = 0.7;
 const ITEM_SPARKLE_COUNT = 6;
 const ITEM_SPARKLE_LIFETIME = 16;
 const ITEM_RING_DURATION = 24;
@@ -364,6 +368,8 @@ const ITEM_RING_PARTICLE_COUNT = 6;
 let itemSpawnTimer = ITEM_SPAWN_INTERVAL;
 let shieldTimer = 0;
 let magnetTimer = 0;
+let scoreBoostTimer = 0;
+let slowTimeTimer = 0;
 
 function maybeSpawnItem() {
   if (item.active) {
@@ -388,6 +394,10 @@ function activateItemEffect(def) {
     shieldTimer = def.duration;
   } else if (def.effect === 'magnet') {
     magnetTimer = def.duration;
+  } else if (def.effect === 'scoreBoost') {
+    scoreBoostTimer = def.duration;
+  } else if (def.effect === 'slowTime') {
+    slowTimeTimer = def.duration;
   }
 }
 
@@ -403,6 +413,16 @@ function applyMagnetEffect() {
   }
   fish.x += (dx / distance) * MAGNET_PULL_SPEED;
   fish.y += (dy / distance) * MAGNET_PULL_SPEED;
+}
+
+function getItemSpeedFactor() {
+  return slowTimeTimer > 0 ? SLOW_TIME_FACTOR : 1;
+}
+
+function addScore(amount) {
+  const actual = scoreBoostTimer > 0 ? amount * 2 : amount;
+  score += actual;
+  return actual;
 }
 
 function checkItemCollision() {
@@ -438,7 +458,7 @@ function checkItemCollision() {
   popupTexts.push({
     x: item.x + item.width / 2,
     y: item.y - 6,
-    label: def.name.toUpperCase() + '!',
+    label: def.label,
     color: def.color,
     life: POPUP_TEXT_DURATION,
     maxLife: POPUP_TEXT_DURATION,
@@ -682,10 +702,10 @@ function checkFishCollision() {
   if (!fish.active || !isColliding(player, fish)) {
     return;
   }
-  const bonus = fish.isRare ? RARE_FISH_BONUS : FISH_BONUS;
+  const baseBonus = fish.isRare ? RARE_FISH_BONUS : FISH_BONUS;
   const color = fish.isRare ? COLOR_GOLD : COLOR_CYAN;
 
-  score += bonus;
+  const bonus = addScore(baseBonus);
   scorePopTimer = SCORE_POP_DURATION;
   fishCollectedThisRun += 1;
   totalFishCount += 1;
@@ -771,8 +791,8 @@ function triggerNearMiss() {
   comboTimer = COMBO_RESET_FRAMES;
   comboPopupTimer = COMBO_POPUP_DURATION;
 
-  const bonus = Math.min(NEAR_MISS_BASE_BONUS + (comboCount - 1) * NEAR_MISS_COMBO_STEP, NEAR_MISS_BONUS_CAP);
-  score += bonus;
+  const baseBonus = Math.min(NEAR_MISS_BASE_BONUS + (comboCount - 1) * NEAR_MISS_COMBO_STEP, NEAR_MISS_BONUS_CAP);
+  const bonus = addScore(baseBonus);
   scorePopTimer = SCORE_POP_DURATION;
 
   popupTexts.push({
@@ -827,6 +847,8 @@ function startGame() {
   itemSpawnTimer = ITEM_SPAWN_INTERVAL;
   shieldTimer = 0;
   magnetTimer = 0;
+  scoreBoostTimer = 0;
+  slowTimeTimer = 0;
   hitStopTimer = 0;
   shakeTimer = 0;
   shakeMagnitude = 0;
@@ -1100,6 +1122,12 @@ function update() {
   if (magnetTimer > 0) {
     magnetTimer -= 1;
   }
+  if (scoreBoostTimer > 0) {
+    scoreBoostTimer -= 1;
+  }
+  if (slowTimeTimer > 0) {
+    slowTimeTimer -= 1;
+  }
 
   if (comboTimer > 0) {
     comboTimer -= 1;
@@ -1162,9 +1190,11 @@ function update() {
   });
   holograms = holograms.filter((h) => h.life > 0 && h.x > -150);
 
+  const itemSpeedFactor = getItemSpeedFactor();
+
   maybeSpawnFish();
   if (fish.active) {
-    fish.x -= obstacleSpeed;
+    fish.x -= obstacleSpeed * itemSpeedFactor;
     if (fish.x + fish.width < 0) {
       fish.active = false;
     }
@@ -1174,7 +1204,7 @@ function update() {
 
   maybeSpawnItem();
   if (item.active) {
-    item.x -= obstacleSpeed;
+    item.x -= obstacleSpeed * itemSpeedFactor;
     if (item.x + item.width < 0) {
       item.active = false;
     }
@@ -1182,7 +1212,7 @@ function update() {
   checkItemCollision();
 
   // speedMultiplierは障害物ごとの見た目の速度差のみに使い、難易度カーブ(obstacleSpeed)には影響させない
-  obstacle.x -= obstacleSpeed * obstacle.speedMultiplier;
+  obstacle.x -= obstacleSpeed * obstacle.speedMultiplier * itemSpeedFactor;
   if (obstacle.x + obstacle.width < 0) {
     randomizeObstacle();
   }
@@ -1213,7 +1243,7 @@ function update() {
 
   checkNearMiss();
 
-  score += 1;
+  addScore(1);
 
   const previousLevel = level;
   level = Math.floor(score / 1000) + 1;
@@ -1845,6 +1875,12 @@ function drawItemHud() {
   if (magnetTimer > 0) {
     lines.push({ text: 'MAGNET ' + Math.ceil(magnetTimer / 60) + 's', color: COLOR_MAGENTA });
   }
+  if (scoreBoostTimer > 0) {
+    lines.push({ text: 'SCORE x2 ' + Math.ceil(scoreBoostTimer / 60) + 's', color: COLOR_GOLD });
+  }
+  if (slowTimeTimer > 0) {
+    lines.push({ text: 'SLOW TIME ' + Math.ceil(slowTimeTimer / 60) + 's', color: COLOR_LIGHTBLUE });
+  }
   if (lines.length === 0) {
     return;
   }
@@ -1976,6 +2012,44 @@ function drawMagnetAura() {
   ctx.globalAlpha = pulse;
   ctx.fillStyle = COLOR_MAGENTA;
   ctx.shadowColor = COLOR_MAGENTA;
+  ctx.shadowBlur = 20;
+  ctx.beginPath();
+  ctx.arc(cx, cy, player.width * 0.75, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawScoreBoostGlow() {
+  if (scoreBoostTimer <= 0) {
+    return;
+  }
+  const cx = player.x + player.width / 2;
+  const cy = player.y + player.height / 2;
+  const pulse = Math.sin(performance.now() / 150) * 3;
+
+  ctx.save();
+  ctx.shadowColor = COLOR_GOLD;
+  ctx.shadowBlur = 14;
+  ctx.strokeStyle = COLOR_GOLD;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(cx, cy, player.width * 0.7 + pulse, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawSlowTimeAura() {
+  if (slowTimeTimer <= 0) {
+    return;
+  }
+  const cx = player.x + player.width / 2;
+  const cy = player.y + player.height / 2;
+  const pulse = 0.25 + Math.sin(performance.now() / 200) * 0.12;
+
+  ctx.save();
+  ctx.globalAlpha = pulse;
+  ctx.fillStyle = COLOR_LIGHTBLUE;
+  ctx.shadowColor = COLOR_LIGHTBLUE;
   ctx.shadowBlur = 20;
   ctx.beginPath();
   ctx.arc(cx, cy, player.width * 0.75, 0, Math.PI * 2);
@@ -2165,8 +2239,10 @@ function render() {
   drawParticles();
   drawPopupTexts();
   drawMagnetAura();
+  drawSlowTimeAura();
   drawPlayer();
   drawShieldRing();
+  drawScoreBoostGlow();
   drawLevelUpRing();
   drawRings();
 
