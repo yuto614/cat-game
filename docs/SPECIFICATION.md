@@ -1,4 +1,4 @@
-# NEON NEKO RUNNER 仕様書（Version 1.0）
+# NEON NEKO RUNNER 仕様書（Version 1.1）
 
 ## ゲーム概要
 
@@ -24,7 +24,11 @@ css/
   style.css     # 全体レイアウト・キャンバスの見た目
 js/
   main.js       # ゲームロジック・描画処理（ES Modules、単一ファイル）
-assets/         # 画像・音声用（現状未使用）
+assets/
+  audio/
+    README.md   # 必要な音源ファイル一覧
+    bgm/        # BGM音源（現状未配置）
+    se/         # 効果音音源（現状未配置）
 docs/           # ドキュメント（本書・CHANGELOG・ROADMAP）
 ```
 
@@ -51,7 +55,10 @@ docs/           # ドキュメント（本書・CHANGELOG・ROADMAP）
 | スペースキー / クリック / タップ | タイトル・ゲームオーバー画面でスタート |
 | P キー | 一時停止 / 再開 |
 | A キー | タイトル画面から実績一覧の表示 |
-| ESC キー | 実績一覧からタイトルへ戻る |
+| S キー | タイトル画面から設定画面の表示 |
+| ESC キー | 実績一覧・設定画面からタイトルへ戻る |
+| ↑ / ↓ キー | 設定画面で項目を選択 |
+| ← / → キー | 設定画面で値を変更 |
 
 PC・モバイルの両方に対応。
 
@@ -164,6 +171,7 @@ PC・モバイルの両方に対応。
 * 操作説明（SPACE/TAP TO JUMP、COLLECT FISH、AVOID OBSTACLES）
 * ベストスコア・累計魚取得数・実績解除数を表示
 * 「A KEY: VIEW ACHIEVEMENTS」から実績一覧画面へ遷移可能
+* 「S KEY: SETTINGS」から設定画面へ遷移可能
 * 「SPACE TO START」でゲーム開始
 
 ## GAME OVER画面
@@ -179,6 +187,21 @@ PC・モバイルの両方に対応。
 * 一時停止中は「PAUSED」「PRESS P TO RESUME」を表示
 * ヒットストップ・スコアポップ・ハイスコア発光・シェイク・リング・実績通知など、最後まで再生したい演出のタイマーは `playing` 判定より前で更新されるため、一時停止中でも自然に終了する
 
+## サウンド
+
+* BGM（タイトル / プレイ中 / ゲームオーバーの3種類）と効果音(SE)8種類（ジャンプ・ダブルジャンプ・魚取得・レア魚取得・レベルアップ・実績解除・ゲームオーバー・ボタン決定）に対応する構成を用意
+* BGM・SEともに `Audio` オブジェクトを生成し、`assets/audio/bgm/` `assets/audio/se/` から読み込む
+* Version 1.1 時点では音源ファイル自体は未配置のため、再生は無音（読み込みエラーは無視され、ゲーム進行に影響しない）。音源を配置すれば自動的に再生される
+* `gameState` が `title` → `playing` → `gameover` と切り替わるタイミングでBGMを切り替え、一時停止中・実績一覧・設定画面では直前のBGMを継続する
+* BGM音量・SE音量・BGM ON/OFF・SE ON/OFFは設定画面から変更可能で、即座に `localStorage` へ保存される
+
+## 設定画面
+
+* タイトル画面から S キーで遷移（`gameState = 'settings'`）
+* 設定項目: 「BGM VOLUME」「SE VOLUME」「BGM」「SE」の4項目
+* ↑ / ↓ キーで項目選択、← / → キーで値を変更（音量は10%刻み、ON/OFFは切り替え）
+* ESC キー / S キーでタイトル画面へ戻る
+
 ## モバイル対応
 
 * `viewport` メタタグで画面幅に追従
@@ -193,6 +216,10 @@ PC・モバイルの両方に対応。
 | `cat-game-total-fish` | 累計魚取得数 |
 | `cat-game-rare-fish` | 累計レア魚取得数 |
 | `cat-game-achievements` | 解除済み実績ID（カンマ区切り） |
+| `cat-game-bgm-volume` | BGM音量（0〜1） |
+| `cat-game-se-volume` | SE音量（0〜1） |
+| `cat-game-bgm-enabled` | BGM ON/OFF（`true` / `false`） |
+| `cat-game-se-enabled` | SE ON/OFF（`true` / `false`） |
 
 ## パフォーマンス方針
 

@@ -5,6 +5,10 @@ const HIGH_SCORE_KEY = 'cat-game-high-score';
 const TOTAL_FISH_KEY = 'cat-game-total-fish';
 const RARE_FISH_KEY = 'cat-game-rare-fish';
 const ACHIEVEMENTS_KEY = 'cat-game-achievements';
+const BGM_VOLUME_KEY = 'cat-game-bgm-volume';
+const SE_VOLUME_KEY = 'cat-game-se-volume';
+const BGM_ENABLED_KEY = 'cat-game-bgm-enabled';
+const SE_ENABLED_KEY = 'cat-game-se-enabled';
 
 const COLOR_CYAN = '#00f6ff';
 const COLOR_MAGENTA = '#ff2d95';
@@ -154,6 +158,115 @@ const DOUBLE_JUMP_RING_MAX_RADIUS = 36;
 const DOUBLE_JUMP_RING_PARTICLE_COUNT = 10;
 const DOUBLE_JUMP_GLOW_DURATION = 10;
 
+const DEFAULT_VOLUME = 0.5;
+const SETTINGS_VOLUME_STEP = 0.1;
+const SETTINGS_ROWS = ['bgmVolume', 'seVolume', 'bgmEnabled', 'seEnabled'];
+
+const BGM_SOURCES = {
+  title: 'assets/audio/bgm/title.mp3',
+  playing: 'assets/audio/bgm/playing.mp3',
+  gameover: 'assets/audio/bgm/gameover.mp3',
+};
+
+const SE_SOURCES = {
+  jump: 'assets/audio/se/jump.mp3',
+  doubleJump: 'assets/audio/se/double_jump.mp3',
+  fish: 'assets/audio/se/fish.mp3',
+  rareFish: 'assets/audio/se/rare_fish.mp3',
+  levelUp: 'assets/audio/se/level_up.mp3',
+  achievement: 'assets/audio/se/achievement.mp3',
+  gameOver: 'assets/audio/se/game_over.mp3',
+  select: 'assets/audio/se/select.mp3',
+};
+
+const bgmAudios = {};
+Object.keys(BGM_SOURCES).forEach((key) => {
+  const audio = new Audio(BGM_SOURCES[key]);
+  audio.loop = true;
+  bgmAudios[key] = audio;
+});
+
+const seAudios = {};
+Object.keys(SE_SOURCES).forEach((key) => {
+  seAudios[key] = new Audio(SE_SOURCES[key]);
+});
+
+function loadVolumeSetting(key) {
+  const stored = localStorage.getItem(key);
+  return stored === null ? DEFAULT_VOLUME : Number(stored);
+}
+
+function loadEnabledSetting(key) {
+  const stored = localStorage.getItem(key);
+  return stored === null ? true : stored === 'true';
+}
+
+let bgmVolume = loadVolumeSetting(BGM_VOLUME_KEY);
+let seVolume = loadVolumeSetting(SE_VOLUME_KEY);
+let bgmEnabled = loadEnabledSetting(BGM_ENABLED_KEY);
+let seEnabled = loadEnabledSetting(SE_ENABLED_KEY);
+let currentBgmKey = null;
+
+function playBgm(key) {
+  if (currentBgmKey === key) {
+    return;
+  }
+  if (currentBgmKey) {
+    bgmAudios[currentBgmKey].pause();
+    bgmAudios[currentBgmKey].currentTime = 0;
+  }
+  currentBgmKey = key;
+  if (!bgmEnabled) {
+    return;
+  }
+  const audio = bgmAudios[key];
+  audio.volume = bgmVolume;
+  audio.play().catch(() => {});
+}
+
+function playSe(key) {
+  if (!seEnabled) {
+    return;
+  }
+  const audio = seAudios[key];
+  audio.volume = seVolume;
+  audio.currentTime = 0;
+  audio.play().catch(() => {});
+}
+
+function setBgmVolume(value) {
+  bgmVolume = Math.max(0, Math.min(1, value));
+  localStorage.setItem(BGM_VOLUME_KEY, String(bgmVolume));
+  if (currentBgmKey) {
+    bgmAudios[currentBgmKey].volume = bgmVolume;
+  }
+}
+
+function setSeVolume(value) {
+  seVolume = Math.max(0, Math.min(1, value));
+  localStorage.setItem(SE_VOLUME_KEY, String(seVolume));
+}
+
+function setBgmEnabled(enabled) {
+  bgmEnabled = enabled;
+  localStorage.setItem(BGM_ENABLED_KEY, String(enabled));
+  if (!currentBgmKey) {
+    return;
+  }
+  const audio = bgmAudios[currentBgmKey];
+  if (enabled) {
+    audio.volume = bgmVolume;
+    audio.play().catch(() => {});
+  } else {
+    audio.pause();
+  }
+}
+
+function setSeEnabled(enabled) {
+  seEnabled = enabled;
+  localStorage.setItem(SE_ENABLED_KEY, String(enabled));
+}
+
 const moon = {
   x: canvas.width - 90,
   y: 70,
@@ -240,6 +353,7 @@ let highScoreGlowTimer = 0;
 let rings = [];
 let playerGlowTimer = 0;
 let isNewRecord = false;
+let settingsIndex = 0;
 
 function getAvailableObstacleTypes() {
   if (level < 3) {
@@ -366,6 +480,7 @@ function unlockAchievement(id) {
   localStorage.setItem(ACHIEVEMENTS_KEY, unlockedAchievements.join(','));
   achievementQueue.push(id);
   triggerHitStop(HIT_STOP_ACHIEVEMENT);
+  playSe('achievement');
 }
 
 function checkAchievements() {
@@ -399,6 +514,8 @@ function checkFishCollision() {
   }
   localStorage.setItem(TOTAL_FISH_KEY, String(totalFishCount));
   localStorage.setItem(RARE_FISH_KEY, String(rareFishCount));
+
+  playSe(fish.isRare ? 'rareFish' : 'fish');
 
   spawnFishSparkles(fish.x + fish.width / 2, fish.y + fish.height / 2, color);
 
@@ -536,6 +653,7 @@ function startGame() {
   isNewRecord = false;
   player.jumpCount = 0;
   gameState = 'playing';
+  playBgm('playing');
 }
 
 function jumpAction() {
@@ -561,13 +679,16 @@ function jumpAction() {
       maxRadius: DOUBLE_JUMP_RING_MAX_RADIUS,
       particleCount: DOUBLE_JUMP_RING_PARTICLE_COUNT,
     });
+    playSe('doubleJump');
   } else {
     spawnJumpParticles();
+    playSe('jump');
   }
 }
 
 function handlePrimaryAction() {
   if (gameState === 'title' || gameState === 'gameover') {
+    playSe('select');
     startGame();
     return;
   }
@@ -577,9 +698,35 @@ function handlePrimaryAction() {
   jumpAction();
 }
 
+function handleSettingsKey(code) {
+  if (code === 'ArrowUp') {
+    settingsIndex = (settingsIndex - 1 + SETTINGS_ROWS.length) % SETTINGS_ROWS.length;
+    return;
+  }
+  if (code === 'ArrowDown') {
+    settingsIndex = (settingsIndex + 1) % SETTINGS_ROWS.length;
+    return;
+  }
+  if (code !== 'ArrowLeft' && code !== 'ArrowRight') {
+    return;
+  }
+  const row = SETTINGS_ROWS[settingsIndex];
+  const direction = code === 'ArrowLeft' ? -1 : 1;
+  if (row === 'bgmVolume') {
+    setBgmVolume(bgmVolume + direction * SETTINGS_VOLUME_STEP);
+  } else if (row === 'seVolume') {
+    setSeVolume(seVolume + direction * SETTINGS_VOLUME_STEP);
+  } else if (row === 'bgmEnabled') {
+    setBgmEnabled(!bgmEnabled);
+  } else if (row === 'seEnabled') {
+    setSeEnabled(!seEnabled);
+  }
+  playSe('select');
+}
+
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') {
-    if (gameState === 'achievements') {
+    if (gameState === 'achievements' || gameState === 'settings') {
       gameState = 'title';
     }
     return;
@@ -594,12 +741,27 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  if (e.code === 'KeyS') {
+    if (gameState === 'title') {
+      gameState = 'settings';
+      playSe('select');
+    } else if (gameState === 'settings') {
+      gameState = 'title';
+    }
+    return;
+  }
+
   if (e.code === 'KeyP') {
     if (gameState === 'playing') {
       gameState = 'paused';
     } else if (gameState === 'paused') {
       gameState = 'playing';
     }
+    return;
+  }
+
+  if (gameState === 'settings') {
+    handleSettingsKey(e.code);
     return;
   }
 
@@ -775,6 +937,8 @@ function update() {
     comboCount = 0;
     comboTimer = 0;
     triggerShake(SHAKE_DURATION, SHAKE_GAME_OVER);
+    playSe('gameOver');
+    playBgm('gameover');
     if (score > highScore) {
       highScore = score;
       localStorage.setItem(HIGH_SCORE_KEY, String(highScore));
@@ -794,6 +958,7 @@ function update() {
     levelUpTimer = LEVEL_UP_DURATION;
     triggerHitStop(HIT_STOP_LEVEL_UP);
     triggerShake(SHAKE_DURATION, SHAKE_LEVEL_UP);
+    playSe('levelUp');
   }
 
   if (nextMilestoneIndex < MILESTONES.length && score >= MILESTONES[nextMilestoneIndex]) {
@@ -1647,8 +1812,9 @@ function render() {
     drawCenteredText('TOTAL FISH: ' + totalFishCount, canvas.height / 2 - 7, 16);
     drawCenteredText('ACHIEVEMENTS ' + unlockedAchievements.length + ' / ' + ACHIEVEMENTS.length + ' UNLOCKED', canvas.height / 2 + 15, 16);
     drawCenteredText('A KEY : VIEW ACHIEVEMENTS', canvas.height / 2 + 36, 13, COLOR_PURPLE);
+    drawCenteredText('S KEY : SETTINGS', canvas.height / 2 + 53, 13, COLOR_PURPLE);
 
-    drawCenteredText('SPACE TO START', canvas.height / 2 + 75, 22);
+    drawCenteredText('SPACE TO START', canvas.height / 2 + 82, 22);
   } else if (gameState === 'achievements') {
     drawCenteredText('ACHIEVEMENTS', canvas.height / 2 - 160, 26);
     ACHIEVEMENTS.forEach((a, i) => {
@@ -1658,6 +1824,23 @@ function render() {
       drawCenteredText(mark + ' ' + a.title, canvas.height / 2 - 100 + i * 36, 20, color);
     });
     drawCenteredText('ESC / A : BACK', canvas.height / 2 + 130, 16);
+  } else if (gameState === 'settings') {
+    drawCenteredText('SETTINGS', canvas.height / 2 - 150, 26);
+
+    const rows = [
+      { label: 'BGM VOLUME', value: Math.round(bgmVolume * 100) + '%' },
+      { label: 'SE VOLUME', value: Math.round(seVolume * 100) + '%' },
+      { label: 'BGM', value: bgmEnabled ? 'ON' : 'OFF' },
+      { label: 'SE', value: seEnabled ? 'ON' : 'OFF' },
+    ];
+    rows.forEach((row, i) => {
+      const selected = i === settingsIndex;
+      const color = selected ? COLOR_GOLD : COLOR_WHITE;
+      const prefix = selected ? '> ' : '  ';
+      drawCenteredText(prefix + row.label + ' : ' + row.value, canvas.height / 2 - 80 + i * 36, 18, color);
+    });
+    drawCenteredText('ARROWS : SELECT / CHANGE', canvas.height / 2 + 110, 14, COLOR_PURPLE);
+    drawCenteredText('ESC / S : BACK', canvas.height / 2 + 132, 14, COLOR_PURPLE);
   } else if (gameState === 'paused') {
     drawCenteredText('PAUSED', canvas.height / 2 - 10, 32);
     drawCenteredText('PRESS P TO RESUME', canvas.height / 2 + 22, 18);
@@ -1696,4 +1879,5 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
+playBgm('title');
 requestAnimationFrame(loop);
