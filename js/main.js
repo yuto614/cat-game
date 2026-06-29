@@ -93,6 +93,7 @@ const STAR_COLORS = [COLOR_CYAN, COLOR_PURPLE, COLOR_WHITE];
 const STAR_COUNT = 50;
 const BONUS_STAR_COUNT = 40;
 const SHOOTING_STAR_CHANCE = 0.01;
+const AMBIENT_STAR_COUNT = 24;
 const BUILDING_COUNT = 10;
 const GRID_ROWS = 6;
 const GRID_COLUMNS = 9;
@@ -662,10 +663,22 @@ function makeBuilding() {
   };
 }
 
+function makeAmbientStar() {
+  return {
+    x: Math.random() * canvas.width,
+    y: randomRange(20, HORIZON_Y - 10),
+    radius: randomRange(0.3, 1),
+    speed: randomRange(0.3, 0.9),
+    alpha: randomRange(0.2, 0.6),
+  };
+}
+
 const stars = [
   ...Array.from({ length: STAR_COUNT }, () => makeStar(1)),
   ...Array.from({ length: BONUS_STAR_COUNT }, () => makeStar(2)),
 ];
+
+const ambientStars = Array.from({ length: AMBIENT_STAR_COUNT }, () => makeAmbientStar());
 
 const buildings = Array.from({ length: BUILDING_COUNT }, () => makeBuilding());
 
@@ -1315,6 +1328,14 @@ function update() {
     return;
   }
 
+  ambientStars.forEach((s) => {
+    s.x -= s.speed;
+    if (s.x < 0) {
+      s.x = canvas.width;
+      s.y = randomRange(20, HORIZON_Y - 10);
+    }
+  });
+
   if (levelUpTimer > 0) {
     levelUpTimer -= 1;
   }
@@ -1540,6 +1561,18 @@ function drawStars() {
     ctx.fill();
   });
   ctx.globalAlpha = 1;
+}
+
+function drawAmbientStars() {
+  ctx.save();
+  ctx.fillStyle = COLOR_WHITE;
+  ambientStars.forEach((s) => {
+    ctx.globalAlpha = s.alpha;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.restore();
 }
 
 function drawShootingStars() {
@@ -2319,26 +2352,37 @@ function drawRings() {
   });
 }
 
+const NOTICE_SLIDE_DISTANCE = 60;
+
+// 通知の演出を「右からスライドイン → 表示 → フェードアウト」に統一するための共通ヘルパー。
+// イン側は位置(offsetX)のみで表現し、アウト側はalphaのみで表現する。
+function getNoticeAnimation(timer, duration, fadeFrames) {
+  const introProgress = Math.min(1, (duration - timer) / fadeFrames);
+  const outroProgress = Math.min(1, timer / fadeFrames);
+  return {
+    offsetX: (1 - introProgress) * NOTICE_SLIDE_DISTANCE,
+    alpha: outroProgress,
+  };
+}
+
 function drawAchievementNotice() {
   if (!currentAchievementNotice) {
     return;
   }
-  const t = currentAchievementNotice.timer;
-  const fadeIn = Math.min(1, (ACHIEVEMENT_NOTICE_DURATION - t) / ACHIEVEMENT_FADE_FRAMES);
-  const fadeOut = Math.min(1, t / ACHIEVEMENT_FADE_FRAMES);
-  const alpha = Math.min(fadeIn, fadeOut);
+  const anim = getNoticeAnimation(currentAchievementNotice.timer, ACHIEVEMENT_NOTICE_DURATION, ACHIEVEMENT_FADE_FRAMES);
+  const x = canvas.width - 20 + anim.offsetX;
 
   ctx.save();
-  ctx.globalAlpha = alpha;
+  ctx.globalAlpha = anim.alpha;
   ctx.textAlign = 'right';
   ctx.shadowColor = COLOR_GOLD;
   ctx.shadowBlur = 14;
   ctx.fillStyle = COLOR_GOLD;
   ctx.font = '14px Orbitron, sans-serif';
-  ctx.fillText('ACHIEVEMENT UNLOCKED', canvas.width - 20, 28);
+  ctx.fillText('ACHIEVEMENT UNLOCKED', x, 28);
   ctx.fillStyle = COLOR_CYAN;
   ctx.font = '18px Orbitron, sans-serif';
-  ctx.fillText(currentAchievementNotice.title, canvas.width - 20, 50);
+  ctx.fillText(currentAchievementNotice.title, x, 50);
   ctx.restore();
 }
 
@@ -2346,26 +2390,24 @@ function drawSkinUnlockNotice() {
   if (!currentSkinUnlockNotice) {
     return;
   }
-  const t = currentSkinUnlockNotice.timer;
-  const fadeIn = Math.min(1, (SKIN_UNLOCK_NOTICE_DURATION - t) / SKIN_UNLOCK_FADE_FRAMES);
-  const fadeOut = Math.min(1, t / SKIN_UNLOCK_FADE_FRAMES);
-  const alpha = Math.min(fadeIn, fadeOut);
+  const anim = getNoticeAnimation(currentSkinUnlockNotice.timer, SKIN_UNLOCK_NOTICE_DURATION, SKIN_UNLOCK_FADE_FRAMES);
   const baseY = currentAchievementNotice ? 86 : 28;
+  const x = canvas.width - 20 + anim.offsetX;
 
   ctx.save();
-  ctx.globalAlpha = alpha;
+  ctx.globalAlpha = anim.alpha;
   ctx.textAlign = 'right';
   ctx.shadowColor = COLOR_GOLD;
   ctx.shadowBlur = 14;
   ctx.fillStyle = COLOR_GOLD;
   ctx.font = '14px Orbitron, sans-serif';
-  ctx.fillText('NEW SKIN!', canvas.width - 20, baseY);
+  ctx.fillText('NEW SKIN!', x, baseY);
   ctx.fillStyle = COLOR_CYAN;
   ctx.font = '18px Orbitron, sans-serif';
-  ctx.fillText(currentSkinUnlockNotice.name, canvas.width - 20, baseY + 22);
+  ctx.fillText(currentSkinUnlockNotice.name, x, baseY + 22);
   ctx.fillStyle = COLOR_WHITE;
   ctx.font = '14px Orbitron, sans-serif';
-  ctx.fillText('UNLOCKED!', canvas.width - 20, baseY + 40);
+  ctx.fillText('UNLOCKED!', x, baseY + 40);
   ctx.restore();
 }
 
@@ -2373,23 +2415,21 @@ function drawMissionNotice() {
   if (!currentMissionNotice) {
     return;
   }
-  const t = currentMissionNotice.timer;
-  const fadeIn = Math.min(1, (MISSION_NOTICE_DURATION - t) / MISSION_NOTICE_FADE_FRAMES);
-  const fadeOut = Math.min(1, t / MISSION_NOTICE_FADE_FRAMES);
-  const alpha = Math.min(fadeIn, fadeOut);
+  const anim = getNoticeAnimation(currentMissionNotice.timer, MISSION_NOTICE_DURATION, MISSION_NOTICE_FADE_FRAMES);
   const baseY = 28 + (currentAchievementNotice ? 58 : 0) + (currentSkinUnlockNotice ? 58 : 0);
+  const x = canvas.width - 20 + anim.offsetX;
 
   ctx.save();
-  ctx.globalAlpha = alpha;
+  ctx.globalAlpha = anim.alpha;
   ctx.textAlign = 'right';
   ctx.shadowColor = COLOR_GOLD;
   ctx.shadowBlur = 14;
   ctx.fillStyle = COLOR_GOLD;
   ctx.font = '14px Orbitron, sans-serif';
-  ctx.fillText('MISSION COMPLETE!', canvas.width - 20, baseY);
+  ctx.fillText('MISSION COMPLETE!', x, baseY);
   ctx.fillStyle = COLOR_CYAN;
   ctx.font = '18px Orbitron, sans-serif';
-  ctx.fillText(currentMissionNotice.title, canvas.width - 20, baseY + 22);
+  ctx.fillText(currentMissionNotice.title, x, baseY + 22);
   ctx.restore();
 }
 
@@ -2477,6 +2517,19 @@ function drawCenteredText(text, y, size, color) {
   ctx.fillText(text, canvas.width / 2, y);
 }
 
+// キーボード操作で「今どこを選択しているか」を一目で分かるようにするための
+// 控えめなパルス拡大（選択中の項目にのみ適用する）
+function drawPulsingCenteredText(text, y, size, color) {
+  const scale = 1 + Math.sin(performance.now() / 200) * 0.05;
+  const cx = canvas.width / 2;
+  ctx.save();
+  ctx.translate(cx, y);
+  ctx.scale(scale, scale);
+  ctx.translate(-cx, -y);
+  drawCenteredText(text, y, size, color);
+  ctx.restore();
+}
+
 function render() {
   ctx.save();
   if (shakeTimer > 0) {
@@ -2487,6 +2540,9 @@ function render() {
   drawBackground();
   drawLevelUpGlow();
   drawStars();
+  if (gameState === 'playing') {
+    drawAmbientStars();
+  }
   drawShootingStars();
   drawMoon();
   drawCity();
@@ -2510,31 +2566,36 @@ function render() {
 
   ctx.restore();
 
-  drawHud();
-  drawItemHud();
-  drawComboPopup();
+  if (gameState === 'playing') {
+    drawHud();
+    drawItemHud();
+    drawComboPopup();
+  }
 
   if (gameState === 'title') {
+    const titleFloat = Math.sin(performance.now() / 600) * 6;
+
     ctx.save();
     ctx.shadowColor = COLOR_CYAN;
     ctx.shadowBlur = 20;
-    drawCenteredText('NEON NEKO RUNNER', canvas.height / 2 - 140, 36);
+    drawCenteredText('NEON NEKO RUNNER', canvas.height / 2 - 150 + titleFloat, 38);
     ctx.restore();
 
-    drawCenteredText('COLLECT FISH', canvas.height / 2 - 100, 14, COLOR_WHITE);
-    drawCenteredText('AVOID OBSTACLES', canvas.height / 2 - 81, 14, COLOR_WHITE);
+    drawCenteredText('COLLECT FISH', canvas.height / 2 - 110, 14, COLOR_WHITE);
+    drawCenteredText('AVOID OBSTACLES', canvas.height / 2 - 93, 14, COLOR_WHITE);
 
-    drawCenteredText('BEST SCORE: ' + highScore, canvas.height / 2 - 48, 16);
-    drawCenteredText('TOTAL FISH: ' + totalFishCount, canvas.height / 2 - 26, 16);
-    drawCenteredText('ACHIEVEMENTS ' + unlockedAchievements.length + ' / ' + ACHIEVEMENTS.length + ' UNLOCKED', canvas.height / 2 - 4, 16);
-    drawCenteredText('MODE : ' + currentMode.name.toUpperCase(), canvas.height / 2 + 14, 16, COLOR_GOLD);
+    drawCenteredText('BEST SCORE: ' + highScore, canvas.height / 2 - 64, 16);
+    drawCenteredText('TOTAL FISH: ' + totalFishCount, canvas.height / 2 - 46, 16);
+    drawCenteredText('ACHIEVEMENTS ' + unlockedAchievements.length + ' / ' + ACHIEVEMENTS.length + ' UNLOCKED', canvas.height / 2 - 28, 16);
+    drawCenteredText('MODE : ' + currentMode.name.toUpperCase(), canvas.height / 2 - 8, 16, COLOR_GOLD);
+    drawCenteredText('SKIN : ' + currentSkin.name.toUpperCase(), canvas.height / 2 + 10, 16, currentSkin.color);
 
-    drawCenteredText('SPACE : START', canvas.height / 2 + 38, 14, COLOR_PURPLE);
-    drawCenteredText('M : MODE', canvas.height / 2 + 55, 14, COLOR_PURPLE);
-    drawCenteredText('K : SKINS', canvas.height / 2 + 72, 14, COLOR_PURPLE);
-    drawCenteredText('C : MISSIONS', canvas.height / 2 + 89, 14, COLOR_PURPLE);
-    drawCenteredText('S : SETTINGS', canvas.height / 2 + 106, 14, COLOR_PURPLE);
-    drawCenteredText('A : ACHIEVEMENTS', canvas.height / 2 + 123, 14, COLOR_PURPLE);
+    drawPulsingCenteredText('SPACE : START', canvas.height / 2 + 36, 16, COLOR_CYAN);
+    drawCenteredText('M : MODE', canvas.height / 2 + 54, 14, COLOR_PURPLE);
+    drawCenteredText('K : SKINS', canvas.height / 2 + 70, 14, COLOR_PURPLE);
+    drawCenteredText('C : MISSIONS', canvas.height / 2 + 86, 14, COLOR_PURPLE);
+    drawCenteredText('S : SETTINGS', canvas.height / 2 + 102, 14, COLOR_PURPLE);
+    drawCenteredText('A : ACHIEVEMENTS', canvas.height / 2 + 118, 14, COLOR_PURPLE);
   } else if (gameState === 'achievements') {
     drawCenteredText('ACHIEVEMENTS', canvas.height / 2 - 160, 26);
     ACHIEVEMENTS.forEach((a, i) => {
@@ -2557,7 +2618,13 @@ function render() {
       const selected = i === settingsIndex;
       const color = selected ? COLOR_GOLD : COLOR_WHITE;
       const prefix = selected ? '> ' : '  ';
-      drawCenteredText(prefix + row.label + ' : ' + row.value, canvas.height / 2 - 80 + i * 36, 18, color);
+      const text = prefix + row.label + ' : ' + row.value;
+      const y = canvas.height / 2 - 80 + i * 36;
+      if (selected) {
+        drawPulsingCenteredText(text, y, 18, color);
+      } else {
+        drawCenteredText(text, y, 18, color);
+      }
     });
     drawCenteredText('ARROWS : SELECT / CHANGE', canvas.height / 2 + 110, 14, COLOR_PURPLE);
     drawCenteredText('ESC / S : BACK', canvas.height / 2 + 132, 14, COLOR_PURPLE);
@@ -2576,7 +2643,7 @@ function render() {
     ctx.fill();
     ctx.restore();
 
-    drawCenteredText(skin.name, canvas.height / 2 - 28, 22, skin.unlocked ? COLOR_WHITE : COLOR_PURPLE);
+    drawPulsingCenteredText(skin.name, canvas.height / 2 - 28, 22, skin.unlocked ? COLOR_WHITE : COLOR_PURPLE);
 
     if (isEquipped) {
       drawCenteredText('EQUIPPED', canvas.height / 2 - 4, 14, COLOR_GOLD);
@@ -2595,7 +2662,7 @@ function render() {
 
     drawCenteredText('MODE SELECT', canvas.height / 2 - 150, 26);
 
-    drawCenteredText(mode.name.toUpperCase(), canvas.height / 2 - 40, 24, COLOR_WHITE);
+    drawPulsingCenteredText(mode.name.toUpperCase(), canvas.height / 2 - 40, 24, COLOR_WHITE);
     drawCenteredText(mode.description, canvas.height / 2 - 10, 14, COLOR_WHITE);
 
     if (isSelected) {
@@ -2610,7 +2677,7 @@ function render() {
     const progress = Math.min(getMissionProgress(mission), mission.target);
 
     drawCenteredText('MISSIONS', canvas.height / 2 - 150, 26);
-    drawCenteredText(mission.title, canvas.height / 2 - 104, 22, mission.completed ? COLOR_GOLD : COLOR_WHITE);
+    drawPulsingCenteredText(mission.title, canvas.height / 2 - 104, 22, mission.completed ? COLOR_GOLD : COLOR_WHITE);
     drawCenteredText(mission.description, canvas.height / 2 - 76, 14, COLOR_WHITE);
 
     drawCenteredText('PROGRESS: ' + progress + ' / ' + mission.target, canvas.height / 2 - 44, 16, COLOR_CYAN);
@@ -2621,8 +2688,10 @@ function render() {
     drawCenteredText('ARROWS : SELECT', canvas.height / 2 + 110, 14, COLOR_PURPLE);
     drawCenteredText('ESC / C : BACK', canvas.height / 2 + 132, 14, COLOR_PURPLE);
   } else if (gameState === 'paused') {
-    drawCenteredText('PAUSED', canvas.height / 2 - 10, 32);
-    drawCenteredText('PRESS P TO RESUME', canvas.height / 2 + 22, 18);
+    drawCenteredText('PAUSED', canvas.height / 2 - 40, 32);
+    drawCenteredText('MODE : ' + currentMode.name.toUpperCase(), canvas.height / 2 - 4, 16, COLOR_GOLD);
+    drawCenteredText('SKIN : ' + currentSkin.name.toUpperCase(), canvas.height / 2 + 16, 16, currentSkin.color);
+    drawCenteredText('PRESS P TO RESUME', canvas.height / 2 + 44, 18);
   } else if (gameState === 'gameover') {
     const blinkOn = Math.floor(performance.now() / 400) % 2 === 0;
     if (blinkOn) {
